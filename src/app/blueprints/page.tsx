@@ -41,7 +41,7 @@ export default function BlueprintsPage() {
       const res = await blueprintsApi.list({
         search: search || undefined,
         page: 1,
-        limit: 200,
+        limit: 100,
         sort: 'created_at',
         order: 'desc',
       });

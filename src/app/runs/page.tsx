@@ -54,7 +54,7 @@ export default function RunsPage() {
   const { data: blueprintsData } = useQuery({
     queryKey: ['blueprints-all'],
     queryFn: async () => {
-      const res = await blueprintsApi.list({ page: 1, limit: 200, sort: 'created_at', order: 'desc' });
+      const res = await blueprintsApi.list({ page: 1, limit: 100, sort: 'created_at', order: 'desc' });
       return res.data;
     },
     staleTime: 60_000,
