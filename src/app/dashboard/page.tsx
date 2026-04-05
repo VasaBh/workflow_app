@@ -20,6 +20,7 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
+  Legend,
 } from 'recharts';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -31,13 +32,26 @@ const STATUS_COLORS: Record<string, string> = {
   not_started: '#475569',
 };
 
+function runProgress(run: Run): number {
+  if (run.status === 'completed') return 100;
+  if (run.status === 'not_started') return 0;
+  if (run.total_steps && run.total_steps > 0) {
+    const pct = ((run.completed_steps ?? 0) / run.total_steps) * 100;
+    return Number.isFinite(pct) ? Math.round(pct) : 0;
+  }
+  const p = run.progress ?? 0;
+  return Number.isFinite(p) ? p : 0;
+}
+
+
 export default function DashboardPage() {
-  const { data: runsData, isLoading: runsLoading } = useQuery<PaginatedResponse<Run>>({
+  const { data: runsData } = useQuery<PaginatedResponse<Run>>({
     queryKey: ['runs', 'dashboard'],
     queryFn: async () => {
-      const res = await runsApi.list({ limit: 10, page: 1, sort: 'created_at', order: 'desc' });
+      const res = await runsApi.list({ limit: 100, page: 1, sort: 'created_at', order: 'desc' });
       return res.data;
     },
+    refetchInterval: 15_000,
   });
 
   const { data: blueprintsData, isLoading: blueprintsLoading } = useQuery<PaginatedResponse<Blueprint>>({
@@ -46,20 +60,28 @@ export default function DashboardPage() {
       const res = await blueprintsApi.list({ limit: 100, page: 1, sort: 'created_at', order: 'desc' });
       return res.data;
     },
+    staleTime: 0,
+    refetchOnMount: true,
   });
 
   const runs = runsData?.items ?? [];
   const blueprints = blueprintsData?.items ?? [];
 
-  const blueprintNames: Record<string, string> = {};
-  blueprints.forEach((b) => { blueprintNames[b.id] = b.name; });
+  // Latest run per blueprint
+  const latestRunByBlueprint: Record<string, Run> = {};
+  for (const r of runs) {
+    const existing = latestRunByBlueprint[r.blueprint_id];
+    if (!existing || new Date(r.created_at) > new Date(existing.created_at)) {
+      latestRunByBlueprint[r.blueprint_id] = r;
+    }
+  }
 
   const totalBlueprints = blueprints.length;
   const publishedBlueprints = blueprints.filter((b) => b.status === 'published').length;
   const totalRuns = runsData?.total ?? 0;
+  const activeRuns = runs.filter((r) => r.status === 'in_progress').length;
   const completedRuns = runs.filter((r) => r.status === 'completed').length;
   const failedRuns = runs.filter((r) => r.status === 'failed').length;
-  const activeRuns = runs.filter((r) => r.status === 'in_progress').length;
 
   const statusCounts: Record<string, number> = {};
   for (const r of runs) {
@@ -67,19 +89,21 @@ export default function DashboardPage() {
   }
   const pieData = Object.entries(statusCounts).map(([name, value]) => ({ name, value }));
 
-  const bpRunCounts: Record<string, { name: string; runs: number }> = {};
+  const bpRunCounts: Record<string, { name: string; completed: number; in_progress: number; failed: number }> = {};
   for (const r of runs) {
     const k = r.blueprint_id;
-    if (!bpRunCounts[k]) bpRunCounts[k] = { name: r.blueprint_name ?? k.slice(0, 8), runs: 0 };
-    bpRunCounts[k].runs++;
+    if (!bpRunCounts[k]) bpRunCounts[k] = { name: r.blueprint_name ?? k.slice(0, 8), completed: 0, in_progress: 0, failed: 0 };
+    if (r.status === 'completed') bpRunCounts[k].completed++;
+    else if (r.status === 'in_progress') bpRunCounts[k].in_progress++;
+    else if (r.status === 'failed') bpRunCounts[k].failed++;
   }
-  const barData = Object.values(bpRunCounts).slice(0, 6);
+  const barData = Object.values(bpRunCounts).slice(0, 8);
 
   const statCards = [
     { label: 'Total Blueprints', value: totalBlueprints, sub: `${publishedBlueprints} published`, icon: GitBranch, color: 'text-indigo-400', bg: 'bg-indigo-900/30' },
     { label: 'Total Runs',       value: totalRuns,        sub: `${activeRuns} active`,             icon: Play,        color: 'text-blue-400',   bg: 'bg-blue-900/30' },
-    { label: 'Completed',        value: completedRuns,    sub: 'Last 10 runs',                     icon: CheckCircle2,color: 'text-green-400',  bg: 'bg-green-900/30' },
-    { label: 'Failed',           value: failedRuns,       sub: 'Last 10 runs',                     icon: AlertCircle, color: 'text-red-400',    bg: 'bg-red-900/30' },
+    { label: 'Completed',        value: completedRuns,    sub: 'Last 100 runs',                    icon: CheckCircle2,color: 'text-green-400',  bg: 'bg-green-900/30' },
+    { label: 'Failed',           value: failedRuns,       sub: 'Last 100 runs',                    icon: AlertCircle, color: 'text-red-400',    bg: 'bg-red-900/30' },
   ];
 
   return (
@@ -104,109 +128,7 @@ export default function DashboardPage() {
           })}
         </div>
 
-        {/* Charts row */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-slate-900 rounded-xl border border-slate-700 p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <TrendingUp className="w-4 h-4 text-slate-400" />
-              <h2 className="text-sm font-semibold text-slate-200">Run Status Distribution</h2>
-            </div>
-            {runs.length === 0 ? (
-              <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={200}>
-                <PieChart>
-                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value">
-                    {pieData.map((entry, i) => (
-                      <Cell key={i} fill={STATUS_COLORS[entry.name] ?? '#475569'} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(v: number, name: string) => [v, name.replace('_', ' ')]}
-                    contentStyle={{ borderRadius: 8, border: '1px solid #334155', background: '#1e293b', fontSize: 12, color: '#f1f5f9' }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-
-          <div className="bg-slate-900 rounded-xl border border-slate-700 p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <GitBranch className="w-4 h-4 text-slate-400" />
-              <h2 className="text-sm font-semibold text-slate-200">Runs per Blueprint</h2>
-            </div>
-            {barData.length === 0 ? (
-              <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={barData} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                  <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                  <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #334155', background: '#1e293b', fontSize: 12, color: '#f1f5f9' }} />
-                  <Bar dataKey="runs" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-
-        {/* Recent runs table */}
-        <div className="bg-slate-900 rounded-xl border border-slate-700">
-          <div className="px-5 py-4 border-b border-slate-700 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-200">Recent Runs</h2>
-            <Link href="/runs" className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">
-              View all
-            </Link>
-          </div>
-          {runsLoading ? (
-            <div className="p-6 text-center text-slate-500 text-sm">Loading...</div>
-          ) : runs.length === 0 ? (
-            <div className="p-6 text-center text-slate-500 text-sm">No runs yet</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-700">
-                    <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Blueprint</th>
-                    <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th>
-                    <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Progress</th>
-                    <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Triggered by</th>
-                    <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Started</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-700/50">
-                  {runs.map((run) => (
-                    <tr key={run.id} className="hover:bg-slate-800/50 transition-colors">
-                      <td className="px-5 py-3">
-                        <Link href={`/runs/${run.id}`} className="font-medium text-indigo-400 hover:text-indigo-300">
-                          {blueprintNames[run.blueprint_id] ?? run.blueprint_name ?? run.blueprint_id.slice(0, 8)}
-                        </Link>
-                      </td>
-                      <td className="px-5 py-3">
-                        <StatusBadge status={run.status as RunStatus} />
-                      </td>
-                      <td className="px-5 py-3 w-32">
-                        <ProgressBar value={run.progress} showLabel />
-                      </td>
-                      <td className="px-5 py-3 text-slate-400">{run.triggered_by ?? '—'}</td>
-                      <td className="px-5 py-3 text-slate-500 whitespace-nowrap">
-                        {run.started_at ? (
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3.5 h-3.5" />
-                            {format(new Date(run.started_at), 'MMM d, HH:mm')}
-                          </span>
-                        ) : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
-        {/* Blueprint summary */}
+        {/* Blueprint Summary */}
         <div className="bg-slate-900 rounded-xl border border-slate-700">
           <div className="px-5 py-4 border-b border-slate-700 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-slate-200">Blueprint Summary</h2>
@@ -228,29 +150,134 @@ export default function DashboardPage() {
                     <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Steps</th>
                     <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Runs</th>
                     <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Version</th>
+                    <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Last Run</th>
+                    <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Run Status</th>
+                    <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Progress</th>
+                    <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Triggered By</th>
+                    <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Started</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-700/50">
-                  {blueprints.slice(0, 5).map((bp) => (
-                    <tr key={bp.id} className="hover:bg-slate-800/50 transition-colors">
-                      <td className="px-5 py-3">
-                        <Link href={`/blueprints/${bp.id}`} className="font-medium text-indigo-400 hover:text-indigo-300">
-                          {bp.name}
-                        </Link>
-                      </td>
-                      <td className="px-5 py-3">
-                        <StatusBadge status={bp.status} />
-                      </td>
-                      <td className="px-5 py-3 text-slate-400">{bp.step_count}</td>
-                      <td className="px-5 py-3 text-slate-400">{bp.run_count}</td>
-                      <td className="px-5 py-3 text-slate-500">v{bp.version}</td>
-                    </tr>
-                  ))}
+                  {[...blueprints].filter((bp) => bp.status === 'published').sort((a, b) => {
+                    const aRun = latestRunByBlueprint[a.id];
+                    const bRun = latestRunByBlueprint[b.id];
+                    const aTime = (aRun?.started_at ?? aRun?.created_at) ?? '';
+                    const bTime = (bRun?.started_at ?? bRun?.created_at) ?? '';
+                    return bTime.localeCompare(aTime);
+                  }).map((bp) => {
+                    const lastRun = latestRunByBlueprint[bp.id];
+                    const now = new Date();
+                    const runDate = lastRun ? new Date(lastRun.started_at ?? lastRun.created_at ?? '') : null;
+                    const ranToday = runDate && !isNaN(runDate.getTime()) &&
+                      runDate.getFullYear() === now.getFullYear() &&
+                      runDate.getMonth() === now.getMonth() &&
+                      runDate.getDate() === now.getDate();
+                    const borderColor = ranToday
+                      ? lastRun?.status === 'completed' ? 'border-l-green-500'
+                        : lastRun?.status === 'in_progress' ? 'border-l-orange-500'
+                        : (lastRun?.status === 'failed' || lastRun?.status === 'cancelled') ? 'border-l-red-500'
+                        : 'border-l-slate-500'
+                      : '';
+                    return (
+                      <tr key={bp.id} className="hover:bg-slate-800/50 transition-colors">
+                        <td className={`px-5 py-3 ${ranToday ? `border-l-[6px] ${borderColor}` : ''}`}>
+                          <Link href={`/blueprints/${bp.id}`} className="font-medium text-indigo-400 hover:text-indigo-300">
+                            {bp.name}
+                          </Link>
+                        </td>
+                        <td className="px-5 py-3">
+                          <StatusBadge status={bp.status} />
+                        </td>
+                        <td className="px-5 py-3 text-slate-400">{bp.step_count}</td>
+                        <td className="px-5 py-3 text-slate-400">{bp.run_count}</td>
+                        <td className="px-5 py-3 text-slate-500">v{bp.version}</td>
+                        <td className="px-5 py-3">
+                          {lastRun ? (
+                            <Link href={`/runs/${lastRun.id}`} className="text-xs text-indigo-400 hover:text-indigo-300 font-mono">
+                              {lastRun.id.slice(0, 8)}…
+                            </Link>
+                          ) : <span className="text-slate-600">—</span>}
+                        </td>
+                        <td className="px-5 py-3">
+                          {lastRun ? <StatusBadge status={lastRun.status as RunStatus} /> : <span className="text-slate-600">—</span>}
+                        </td>
+                        <td className="px-5 py-3 w-32">
+                          {lastRun ? (
+                            <ProgressBar
+                              value={runProgress(lastRun)}
+                              showLabel
+                              color={lastRun.status === 'completed' ? 'green' : lastRun.status === 'failed' ? 'red' : lastRun.status === 'paused' ? 'yellow' : 'indigo'}
+                            />
+                          ) : <span className="text-slate-600">—</span>}
+                        </td>
+                        <td className="px-5 py-3 text-slate-400">{lastRun?.triggered_by ?? '—'}</td>
+                        <td className="px-5 py-3 text-slate-500 whitespace-nowrap">
+                          {lastRun?.started_at ? (
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3.5 h-3.5" />
+                              {format(new Date(lastRun.started_at), 'MMM d, HH:mm')}
+                            </span>
+                          ) : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
         </div>
+
+        {/* Charts row */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="bg-slate-900 rounded-xl border border-slate-700 p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <TrendingUp className="w-4 h-4 text-slate-400" />
+              <h2 className="text-sm font-semibold text-slate-200">Run Status Distribution</h2>
+            </div>
+            {runs.length === 0 ? (
+              <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value">
+                    {pieData.map((entry, i) => (
+                      <Cell key={i} fill={STATUS_COLORS[entry.name] ?? '#475569'} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(v: number, name: string) => [v, name.replace(/_/g, ' ')]}
+                    contentStyle={{ borderRadius: 8, border: '1px solid #334155', background: '#1e293b', fontSize: 12, color: '#f1f5f9' }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          <div className="bg-slate-900 rounded-xl border border-slate-700 p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <GitBranch className="w-4 h-4 text-slate-400" />
+              <h2 className="text-sm font-semibold text-slate-200">Runs per Blueprint</h2>
+            </div>
+            {barData.length === 0 ? (
+              <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={barData} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                  <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} />
+                  <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #334155', background: '#1e293b', fontSize: 12, color: '#f1f5f9' }} />
+                  <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
+                  <Bar dataKey="completed" stackId="a" fill="#22c55e" name="Completed" />
+                  <Bar dataKey="in_progress" stackId="a" fill="#3b82f6" name="In Progress" />
+                  <Bar dataKey="failed" stackId="a" fill="#ef4444" name="Failed" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
       </div>
     </AppShell>
   );

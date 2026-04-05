@@ -25,6 +25,17 @@ const STATUS_OPTIONS = [
 
 const ACTIVE_STATUSES = new Set(['in_progress', 'not_started', 'paused']);
 
+function runProgress(run: import('@/types').Run): number {
+  if (run.status === 'completed') return 100;
+  if (run.status === 'not_started') return 0;
+  if (run.total_steps && run.total_steps > 0) {
+    const pct = ((run.completed_steps ?? 0) / run.total_steps) * 100;
+    return Number.isFinite(pct) ? Math.round(pct) : 0;
+  }
+  const p = run.progress ?? 0;
+  return Number.isFinite(p) ? p : 0;
+}
+
 export default function RunsPage() {
   const qc = useQueryClient();
   const [statusFilter, setStatusFilter] = useState('');
@@ -195,11 +206,17 @@ export default function RunsPage() {
                           <StatusBadge status={run.status as RunStatus} />
                         </td>
                         <td className="px-5 py-3.5 w-36">
-                          <ProgressBar value={run.progress} showLabel />
+                          <ProgressBar value={runProgress(run)} showLabel color={run.status === 'completed' ? 'green' : run.status === 'failed' ? 'red' : run.status === 'paused' ? 'yellow' : 'indigo'} />
                         </td>
                         <td className="px-5 py-3.5 text-slate-400">{run.triggered_by ?? '—'}</td>
                         <td className="px-5 py-3.5 text-slate-500">
-                          {run.duration ? `${Math.round(run.duration)}s` : '—'}
+                          {(() => {
+                            const secs = run.duration ??
+                              (run.started_at && run.completed_at
+                                ? Math.round((new Date(run.completed_at).getTime() - new Date(run.started_at).getTime()) / 1000)
+                                : null);
+                            return secs != null ? `${secs}s` : '—';
+                          })()}
                         </td>
                         <td className="px-5 py-3.5 text-slate-500 whitespace-nowrap">
                           {run.started_at ? (

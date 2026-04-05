@@ -6,13 +6,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { blueprintsApi, stepsApi, runsApi, scriptsApi } from '@/lib/api';
 import AppShell from '@/components/layout/AppShell';
 import StatusBadge from '@/components/ui/StatusBadge';
+import ProgressBar from '@/components/ui/ProgressBar';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import RoleGate from '@/components/ui/RoleGate';
-import { Blueprint, Step, Script, PaginatedResponse } from '@/types';
+import { Blueprint, Step, Script, PaginatedResponse, Run, RunStatus } from '@/types';
 import {
   ArrowLeft, Play, Globe, Trash2, Plus, ChevronDown, ChevronRight,
-  Code2, FileText, CheckSquare, Settings, Loader2, Pencil, Copy, Check,
+  Code2, FileText, CheckSquare, Settings, Loader2, Pencil, Copy, Check, Clock,
 } from 'lucide-react';
+import { format } from 'date-fns';
+import Link from 'next/link';
 import toast from 'react-hot-toast';
 
 function CopyId({ value, short }: { value: string; short?: boolean }) {
@@ -252,6 +255,22 @@ export default function BlueprintDetailPage() {
       const res = await stepsApi.list(id);
       return res.data?.items ?? res.data ?? [];
     },
+  });
+
+  const { data: runsData } = useQuery<Run[]>({
+    queryKey: ['blueprint-runs', id],
+    queryFn: async () => {
+      const res = await runsApi.list({ blueprint_id: id, page: 1, limit: 50, sort: 'started_at', order: 'desc' });
+      const d = res.data;
+      if (Array.isArray(d)) return d;
+      if (Array.isArray(d?.items)) return d.items;
+      return [];
+    },
+  });
+  const blueprintRuns: Run[] = (runsData ?? []).slice().sort((a, b) => {
+    const at = a.started_at ?? a.created_at ?? '';
+    const bt = b.started_at ?? b.created_at ?? '';
+    return bt.localeCompare(at);
   });
 
   const { data: scriptsData } = useQuery<PaginatedResponse<Script>>({
@@ -529,6 +548,68 @@ export default function BlueprintDetailPage() {
               )}
             </div>
           </div>
+        </div>
+
+        {/* Runs table */}
+        <div className="bg-slate-900 rounded-xl border border-slate-700">
+          <div className="px-5 py-4 border-b border-slate-700 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-200">Runs ({blueprintRuns.length})</h2>
+            <Link href="/runs" className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">View all</Link>
+          </div>
+          {blueprintRuns.length === 0 ? (
+            <div className="py-8 text-center text-slate-500 text-sm">No runs yet</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Run ID</th>
+                    <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th>
+                    <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Progress</th>
+                    <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Triggered By</th>
+                    <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Started</th>
+                    <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Duration</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-700/50">
+                  {blueprintRuns.map((run) => {
+                    const pct = run.status === 'completed' ? 100 : run.status === 'not_started' ? 0 : (run.progress ?? 0);
+                    return (
+                      <tr key={run.id} className="hover:bg-slate-800/50 transition-colors">
+                        <td className="px-5 py-3">
+                          <Link href={`/runs/${run.id}`} className="text-xs text-indigo-400 hover:text-indigo-300 font-mono">
+                            {run.id.slice(0, 8)}…
+                          </Link>
+                        </td>
+                        <td className="px-5 py-3"><StatusBadge status={run.status as RunStatus} /></td>
+                        <td className="px-5 py-3 w-32">
+                          <ProgressBar value={pct} showLabel color={run.status === 'completed' ? 'green' : run.status === 'failed' ? 'red' : run.status === 'paused' ? 'yellow' : 'indigo'} />
+                        </td>
+                        <td className="px-5 py-3 text-slate-400">{run.triggered_by ?? '—'}</td>
+                        <td className="px-5 py-3 text-slate-500 whitespace-nowrap">
+                          {run.started_at ? (
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3.5 h-3.5" />
+                              {format(new Date(run.started_at), 'MMM d, HH:mm')}
+                            </span>
+                          ) : '—'}
+                        </td>
+                        <td className="px-5 py-3 text-slate-500">{
+                          (() => {
+                            const secs = run.duration ??
+                              (run.started_at && run.completed_at
+                                ? Math.round((new Date(run.completed_at).getTime() - new Date(run.started_at).getTime()) / 1000)
+                                : null);
+                            return secs != null ? `${secs}s` : '—';
+                          })()
+                        }</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
 

@@ -440,11 +440,24 @@ export default function RunDetailPage() {
 
         {/* Progress */}
         <div className="bg-slate-900 rounded-xl border border-slate-700 p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-slate-200">Progress</h2>
-            <span className="text-sm font-semibold text-slate-300">{run.progress}%</span>
-          </div>
-          <ProgressBar value={run.progress} color={run.status === 'failed' ? 'red' : run.status === 'completed' ? 'green' : 'indigo'} />
+          {(() => {
+            const DONE = new Set(['completed', 'failed', 'skipped']);
+            const total = stepRuns?.length ?? 0;
+            const done = stepRuns?.filter((s) => DONE.has(s.status)).length ?? 0;
+            const calcPct = run.status === 'completed' ? 100
+              : run.status === 'not_started' ? 0
+              : total > 0 ? Math.round((done / total) * 100)
+              : (run.progress ?? 0);
+            return (
+              <>
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-semibold text-slate-200">Progress</h2>
+                  <span className="text-sm font-semibold text-slate-300">{calcPct}%{total > 0 && <span className="text-xs text-slate-500 ml-1">({done}/{total} steps)</span>}</span>
+                </div>
+                <ProgressBar value={calcPct} color={run.status === 'failed' ? 'red' : run.status === 'completed' ? 'green' : 'indigo'} />
+              </>
+            );
+          })()}
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4 border-t border-slate-700 text-sm">
             <div>

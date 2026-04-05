@@ -49,7 +49,9 @@ export interface Run {
   blueprint_id: string;
   blueprint_name?: string;
   status: RunStatus;
-  progress: number;
+  progress?: number;
+  total_steps?: number;
+  completed_steps?: number;
   triggered_by?: string;
   started_at?: string;
   completed_at?: string;
