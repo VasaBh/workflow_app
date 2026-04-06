@@ -266,6 +266,17 @@ export default function BlueprintDetailPage() {
       if (Array.isArray(d?.items)) return d.items;
       return [];
     },
+    refetchInterval: 5000,
+  });
+
+  const deleteRunMutation = useMutation({
+    mutationFn: (runId: string) => runsApi.delete(runId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['blueprint-runs', id] });
+      qc.invalidateQueries({ queryKey: ['blueprint', id] });
+      toast.success('Run deleted');
+    },
+    onError: (err: unknown) => toast.error((err as Error).message || 'Failed to delete run'),
   });
   const blueprintRuns: Run[] = (runsData ?? []).slice().sort((a, b) => {
     const at = a.started_at ?? a.created_at ?? '';
@@ -569,6 +580,7 @@ export default function BlueprintDetailPage() {
                     <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Triggered By</th>
                     <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Started</th>
                     <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wider">Duration</th>
+                    <th className="px-5 py-3" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-700/50">
@@ -603,6 +615,18 @@ export default function BlueprintDetailPage() {
                             return secs != null ? `${secs}s` : '—';
                           })()
                         }</td>
+                        <td className="px-4 py-3">
+                          <RoleGate minRole="editor">
+                            <button
+                              onClick={() => deleteRunMutation.mutate(run.id)}
+                              disabled={deleteRunMutation.isPending || ['in_progress', 'not_started', 'paused'].includes(run.status)}
+                              title={['in_progress', 'not_started', 'paused'].includes(run.status) ? 'Cancel run before deleting' : 'Delete run'}
+                              className="p-1.5 text-slate-600 hover:text-red-400 hover:bg-red-900/30 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </RoleGate>
+                        </td>
                       </tr>
                     );
                   })}
