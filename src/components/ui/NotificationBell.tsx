@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Bell, Check, CheckCheck, Trash2, X } from 'lucide-react';
+import { Bell, Check, CheckCheck, Trash2, X, Loader2, Radio } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { notificationsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
@@ -27,6 +27,10 @@ export default function NotificationBell() {
   const wsRef = useRef<WebSocket | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [liveMessage, setLiveMessage] = useState<{ title: string; message: string; event_type?: string } | null>(null);
+  const [bellFlash, setBellFlash] = useState(false);
+  const liveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: countData } = useQuery({
     queryKey: ['notifications', 'unread-count'],
@@ -52,11 +56,27 @@ export default function NotificationBell() {
     if (!isAuthenticated) return;
     const token = getAccessToken();
     if (!token) return;
-    const ws = createNotificationWebSocket(token, () => {
+    const ws = createNotificationWebSocket(token, (data) => {
       qc.invalidateQueries({ queryKey: ['notifications'] });
+      // Flash bell and show live banner
+      setBellFlash(true);
+      setTimeout(() => setBellFlash(false), 1000);
+      const msg = data as Record<string, unknown>;
+      if (msg && (msg.title || msg.message)) {
+        setLiveMessage({
+          title: String(msg.title ?? ''),
+          message: String(msg.message ?? ''),
+          event_type: msg.event_type ? String(msg.event_type) : undefined,
+        });
+        if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
+        liveTimerRef.current = setTimeout(() => setLiveMessage(null), 8000);
+      }
     });
+    ws.onopen = () => setWsConnected(true);
+    ws.onclose = () => setWsConnected(false);
+    ws.onerror = () => setWsConnected(false);
     wsRef.current = ws;
-    return () => ws.close();
+    return () => { ws.close(); if (liveTimerRef.current) clearTimeout(liveTimerRef.current); };
   }, [isAuthenticated, qc]);
 
   // Close on outside click
@@ -93,10 +113,13 @@ export default function NotificationBell() {
     <div className="relative" ref={panelRef}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="relative p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+        className={clsx(
+          'relative p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors',
+          bellFlash && 'text-indigo-400'
+        )}
         aria-label="Notifications"
       >
-        <Bell className="w-5 h-5" />
+        <Bell className={clsx('w-5 h-5 transition-transform', bellFlash && 'animate-bounce')} />
         {count > 0 && (
           <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold px-1">
             {count > 99 ? '99+' : count}
@@ -125,6 +148,36 @@ export default function NotificationBell() {
               </button>
             </div>
           </div>
+
+          {/* Status bar */}
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-700/60 bg-slate-800/40 flex-shrink-0">
+            {isLoading ? (
+              <><Loader2 className="w-3 h-3 text-indigo-400 animate-spin flex-shrink-0" /><span className="text-[11px] text-slate-400">Loading…</span></>
+            ) : wsConnected ? (
+              <><Radio className="w-3 h-3 text-green-400 flex-shrink-0" /><span className="text-[11px] text-green-400">Live</span></>
+            ) : (
+              <><Radio className="w-3 h-3 text-slate-600 flex-shrink-0" /><span className="text-[11px] text-slate-600">Offline</span></>
+            )}
+          </div>
+
+          {/* Live incoming message banner */}
+          {liveMessage && (
+            <div className="flex items-start gap-3 px-4 py-2.5 bg-indigo-950/60 border-b border-indigo-800/50 flex-shrink-0">
+              <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-1.5 flex-shrink-0 animate-pulse" />
+              <div className="flex-1 min-w-0">
+                {liveMessage.event_type && (
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${EVENT_COLORS[liveMessage.event_type] ?? 'bg-slate-700 text-slate-400'}`}>
+                    {liveMessage.event_type.replace(/_/g, ' ')}
+                  </span>
+                )}
+                {liveMessage.title && <p className="text-xs font-medium text-slate-200 mt-0.5 truncate">{liveMessage.title}</p>}
+                {liveMessage.message && <p className="text-[11px] text-slate-400 line-clamp-2">{liveMessage.message}</p>}
+              </div>
+              <button onClick={() => setLiveMessage(null)} className="text-slate-600 hover:text-slate-400 flex-shrink-0">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
 
           {/* List */}
           <div className="overflow-y-auto flex-1">

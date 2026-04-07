@@ -7,10 +7,18 @@ import AppShell from '@/components/layout/AppShell';
 import StatusBadge from '@/components/ui/StatusBadge';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import RoleGate from '@/components/ui/RoleGate';
-import { Blueprint, PaginatedResponse, BlueprintStatus } from '@/types';
+import { Blueprint, Run, PaginatedResponse, BlueprintStatus } from '@/types';
 import {
   Plus, Search, GitBranch, Play, Copy, Trash2, ChevronRight, MoreHorizontal, ListOrdered, Layers, PlayCircle,
 } from 'lucide-react';
+
+interface BpRunStats {
+  completed: number;
+  failed: number;
+  in_progress: number;
+  paused: number;
+  cancelled: number;
+}
 import { format } from 'date-fns';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -48,6 +56,31 @@ export default function BlueprintsPage() {
       return res.data;
     },
   });
+
+  const { data: allRuns = [] } = useQuery<Run[]>({
+    queryKey: ['blueprints-runs-stats'],
+    queryFn: async () => {
+      const res = await runsApi.list({ page: 1, limit: 500, sort: 'created_at', order: 'desc' });
+      const d = res.data;
+      if (Array.isArray(d)) return d;
+      if (Array.isArray(d?.items)) return d.items;
+      return [];
+    },
+    staleTime: 30_000,
+  });
+
+  const runStatsByBlueprint: Record<string, BpRunStats> = {};
+  for (const r of allRuns) {
+    if (!runStatsByBlueprint[r.blueprint_id]) {
+      runStatsByBlueprint[r.blueprint_id] = { completed: 0, failed: 0, in_progress: 0, paused: 0, cancelled: 0 };
+    }
+    const s = runStatsByBlueprint[r.blueprint_id];
+    if (r.status === 'completed')        s.completed++;
+    else if (r.status === 'failed')      s.failed++;
+    else if (r.status === 'in_progress') s.in_progress++;
+    else if (r.status === 'paused')      s.paused++;
+    else if (r.status === 'cancelled')   s.cancelled++;
+  }
 
   const createMutation = useMutation({
     mutationFn: () => blueprintsApi.create({ name: newName, description: newDesc, sequential: newSequential }),
@@ -227,10 +260,33 @@ export default function BlueprintsPage() {
                   <span className="text-xs text-slate-500">v{bp.version}</span>
                 </div>
 
-                <div className="flex items-center gap-4 mt-3 pt-3 border-t border-slate-700/50 text-xs text-slate-500">
-                  <span className="flex items-center gap-1"><Layers className="w-3.5 h-3.5" />{bp.step_count} steps</span>
-                  <span className="flex items-center gap-1"><PlayCircle className="w-3.5 h-3.5" />{bp.run_count} runs</span>
-                  <span className="ml-auto">{format(new Date(bp.updated_at), 'MMM d, yyyy')}</span>
+                <div className="mt-3 pt-3 border-t border-slate-700/50 space-y-2">
+                  <div className="flex items-center gap-4 text-xs text-slate-500">
+                    <span className="flex items-center gap-1"><Layers className="w-3.5 h-3.5" />{bp.step_count} steps</span>
+                    <span className="flex items-center gap-1"><PlayCircle className="w-3.5 h-3.5" />{bp.run_count} runs</span>
+                    <span className="ml-auto text-slate-600">{format(new Date(bp.updated_at), 'MMM d, yyyy')}</span>
+                  </div>
+                  {(() => {
+                    const s = runStatsByBlueprint[bp.id];
+                    if (!s) return null;
+                    const chips: { count: number; color: string }[] = [
+                      { count: s.completed,   color: 'bg-green-500' },
+                      { count: s.in_progress, color: 'bg-blue-500' },
+                      { count: s.failed,      color: 'bg-red-500' },
+                      { count: s.paused,      color: 'bg-orange-500' },
+                      { count: s.cancelled,   color: 'bg-slate-500' },
+                    ].filter((c) => c.count > 0);
+                    if (chips.length === 0) return null;
+                    return (
+                      <div className="flex items-center gap-2">
+                        {chips.map(({ count, color }) => (
+                          <span key={color} className="flex items-center gap-1 text-[11px] text-slate-400">
+                            <span className={`w-1.5 h-1.5 rounded-full ${color}`} />{count}
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             ))}

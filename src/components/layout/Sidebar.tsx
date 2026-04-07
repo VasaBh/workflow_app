@@ -28,7 +28,7 @@ interface NavItem {
   minRole: UserRole;
 }
 
-const navItems: NavItem[] = [
+export const navItems: NavItem[] = [
   { href: '/dashboard',      label: 'Dashboard',     icon: LayoutDashboard, minRole: 'viewer' },
   { href: '/blueprints',     label: 'Blueprints',    icon: GitBranch,       minRole: 'viewer' },
   { href: '/runs',           label: 'Runs',          icon: Play,            minRole: 'viewer' },

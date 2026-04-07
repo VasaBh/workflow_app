@@ -44,12 +44,22 @@ export interface Step {
   children?: Step[];
 }
 
+export interface RunProgress {
+  total: number;
+  completed: number;
+  failed: number;
+  skipped: number;
+  in_progress: number;
+  not_started: number;
+  percentage: number;
+}
+
 export interface Run {
   id: string;
   blueprint_id: string;
   blueprint_name?: string;
   status: RunStatus;
-  progress?: number;
+  progress?: RunProgress | number;
   total_steps?: number;
   completed_steps?: number;
   triggered_by?: string;

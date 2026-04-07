@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { runsApi, blueprintsApi } from '@/lib/api';
 import AppShell from '@/components/layout/AppShell';
 import StatusBadge from '@/components/ui/StatusBadge';
-import ProgressBar from '@/components/ui/ProgressBar';
+import ProgressBar, { runStatusColor } from '@/components/ui/ProgressBar';
 import { Run, Blueprint, PaginatedResponse, RunStatus } from '@/types';
 import { GitBranch, Play, CheckCircle2, AlertCircle, TrendingUp, Clock } from 'lucide-react';
 import { format } from 'date-fns';
@@ -27,8 +27,8 @@ const STATUS_COLORS: Record<string, string> = {
   completed:   '#22c55e',
   in_progress: '#3b82f6',
   failed:      '#ef4444',
-  paused:      '#eab308',
-  cancelled:   '#94a3b8',
+  paused:      '#f97316',
+  cancelled:   '#64748b',
   not_started: '#475569',
 };
 
@@ -39,8 +39,9 @@ function runProgress(run: Run): number {
     const pct = ((run.completed_steps ?? 0) / run.total_steps) * 100;
     return Number.isFinite(pct) ? Math.round(pct) : 0;
   }
-  const p = run.progress ?? 0;
-  return Number.isFinite(p) ? p : 0;
+  const p = run.progress;
+  if (p && typeof p === 'object' && 'percentage' in p) return p.percentage;
+  return typeof p === 'number' && Number.isFinite(p) ? p : 0;
 }
 
 
@@ -89,13 +90,15 @@ export default function DashboardPage() {
   }
   const pieData = Object.entries(statusCounts).map(([name, value]) => ({ name, value }));
 
-  const bpRunCounts: Record<string, { name: string; completed: number; in_progress: number; failed: number }> = {};
+  const bpRunCounts: Record<string, { name: string; completed: number; in_progress: number; failed: number; paused: number; cancelled: number }> = {};
   for (const r of runs) {
     const k = r.blueprint_id;
-    if (!bpRunCounts[k]) bpRunCounts[k] = { name: r.blueprint_name ?? k.slice(0, 8), completed: 0, in_progress: 0, failed: 0 };
-    if (r.status === 'completed') bpRunCounts[k].completed++;
+    if (!bpRunCounts[k]) bpRunCounts[k] = { name: r.blueprint_name ?? k.slice(0, 8), completed: 0, in_progress: 0, failed: 0, paused: 0, cancelled: 0 };
+    if (r.status === 'completed')        bpRunCounts[k].completed++;
     else if (r.status === 'in_progress') bpRunCounts[k].in_progress++;
-    else if (r.status === 'failed') bpRunCounts[k].failed++;
+    else if (r.status === 'failed')      bpRunCounts[k].failed++;
+    else if (r.status === 'paused')      bpRunCounts[k].paused++;
+    else if (r.status === 'cancelled')   bpRunCounts[k].cancelled++;
   }
   const barData = Object.values(bpRunCounts).slice(0, 8);
 
@@ -173,10 +176,12 @@ export default function DashboardPage() {
                       runDate.getMonth() === now.getMonth() &&
                       runDate.getDate() === now.getDate();
                     const borderColor = ranToday
-                      ? lastRun?.status === 'completed' ? 'border-l-green-500'
-                        : lastRun?.status === 'in_progress' ? 'border-l-orange-500'
-                        : (lastRun?.status === 'failed' || lastRun?.status === 'cancelled') ? 'border-l-red-500'
-                        : 'border-l-slate-500'
+                      ? lastRun?.status === 'completed'   ? 'border-l-green-500'
+                        : lastRun?.status === 'in_progress' ? 'border-l-blue-500'
+                        : lastRun?.status === 'failed'      ? 'border-l-red-500'
+                        : lastRun?.status === 'paused'      ? 'border-l-orange-500'
+                        : lastRun?.status === 'cancelled'   ? 'border-l-slate-500'
+                        : 'border-l-slate-700'
                       : '';
                     return (
                       <tr key={bp.id} className="hover:bg-slate-800/50 transition-colors">
@@ -206,7 +211,7 @@ export default function DashboardPage() {
                             <ProgressBar
                               value={runProgress(lastRun)}
                               showLabel
-                              color={lastRun.status === 'completed' ? 'green' : lastRun.status === 'failed' ? 'red' : lastRun.status === 'paused' ? 'yellow' : 'indigo'}
+                              color={runStatusColor(lastRun.status)}
                             />
                           ) : <span className="text-slate-600">—</span>}
                         </td>
@@ -269,9 +274,11 @@ export default function DashboardPage() {
                   <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} />
                   <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #334155', background: '#1e293b', fontSize: 12, color: '#f1f5f9' }} />
                   <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-                  <Bar dataKey="completed" stackId="a" fill="#22c55e" name="Completed" />
+                  <Bar dataKey="completed"   stackId="a" fill="#22c55e" name="Completed" />
                   <Bar dataKey="in_progress" stackId="a" fill="#3b82f6" name="In Progress" />
-                  <Bar dataKey="failed" stackId="a" fill="#ef4444" name="Failed" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="failed"      stackId="a" fill="#ef4444" name="Failed" />
+                  <Bar dataKey="paused"      stackId="a" fill="#f97316" name="Paused" />
+                  <Bar dataKey="cancelled"   stackId="a" fill="#64748b" name="Cancelled" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}

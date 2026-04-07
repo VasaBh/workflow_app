@@ -1,19 +1,33 @@
 import clsx from 'clsx';
+import { RunStatus } from '@/types';
 
 interface ProgressBarProps {
   value: number; // 0-100
   className?: string;
   showLabel?: boolean;
-  color?: 'indigo' | 'green' | 'yellow' | 'red' | 'blue';
+  color?: 'indigo' | 'green' | 'yellow' | 'red' | 'blue' | 'orange' | 'grey';
 }
 
 const colorMap = {
-  indigo: 'bg-indigo-600',
-  green: 'bg-green-500',
-  yellow: 'bg-yellow-500',
-  red: 'bg-red-500',
-  blue: 'bg-blue-500',
+  indigo:  'bg-indigo-600',
+  green:   'bg-green-500',
+  yellow:  'bg-yellow-500',
+  red:     'bg-red-500',
+  blue:    'bg-blue-500',
+  orange:  'bg-orange-500',
+  grey:    'bg-slate-500',
 };
+
+export function runStatusColor(status: RunStatus): ProgressBarProps['color'] {
+  switch (status) {
+    case 'completed':   return 'green';
+    case 'failed':      return 'red';
+    case 'in_progress': return 'blue';
+    case 'paused':      return 'orange';
+    case 'cancelled':   return 'grey';
+    default:            return 'indigo';
+  }
+}
 
 export default function ProgressBar({
   value,

@@ -7,10 +7,10 @@ import { runsApi, blueprintsApi } from '@/lib/api';
 import { createRunWebSocket } from '@/lib/ws';
 import AppShell from '@/components/layout/AppShell';
 import StatusBadge from '@/components/ui/StatusBadge';
-import ProgressBar from '@/components/ui/ProgressBar';
+import ProgressBar, { runStatusColor } from '@/components/ui/ProgressBar';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import RoleGate from '@/components/ui/RoleGate';
-import { Run, StepRun, LogEntry, RunStatus, StepStatus } from '@/types';
+import { Run, RunProgress, StepRun, LogEntry, RunStatus, StepStatus } from '@/types';
 import {
   ArrowLeft, Pause, Play, XCircle, RefreshCw, CheckCircle, XIcon,
   ChevronDown, ChevronRight, Terminal, Loader2, Clock, AlertCircle,
@@ -281,6 +281,17 @@ function StepRunNode({ stepRun, runId, level = 0 }: { stepRun: StepRun; runId: s
   );
 }
 
+function parseProgress(run: Run): { pct: number; detail: RunProgress | null } {
+  if (run.status === 'completed') return { pct: 100, detail: null };
+  if (run.status === 'not_started') return { pct: 0, detail: null };
+  const p = run.progress;
+  if (p && typeof p === 'object' && 'percentage' in p) {
+    return { pct: (p as RunProgress).percentage, detail: p as RunProgress };
+  }
+  if (typeof p === 'number' && Number.isFinite(p)) return { pct: p, detail: null };
+  return { pct: 0, detail: null };
+}
+
 export default function RunDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -350,9 +361,26 @@ export default function RunDetailPage() {
     onError: (err: unknown) => toast.error((err as Error).message || 'Failed to resume'),
   });
 
+  const SKIPPABLE = new Set(['not_started', 'blocked', 'pending_approval']);
+
   const cancelMutation = useMutation({
-    mutationFn: () => runsApi.cancel(id),
-    onSuccess: () => { invalidateAll(); toast.success('Run cancelled'); setCancelConfirm(false); },
+    mutationFn: async () => {
+      await runsApi.cancel(id);
+      // Skip all pending steps via API
+      const current = qc.getQueryData<StepRun[]>(['run-steps', id]) ?? [];
+      const collectSkippable = (steps: StepRun[]): StepRun[] =>
+        steps.flatMap((s) => [
+          ...(SKIPPABLE.has(s.status) ? [s] : []),
+          ...(s.children ? collectSkippable(s.children) : []),
+        ]);
+      const toSkip = collectSkippable(current);
+      await Promise.allSettled(toSkip.map((s) => runsApi.skipStep(id, s.id, 'Run cancelled')));
+    },
+    onSuccess: () => {
+      invalidateAll();
+      toast.success('Run cancelled — remaining steps skipped');
+      setCancelConfirm(false);
+    },
     onError: (err: unknown) => toast.error((err as Error).message || 'Failed to cancel'),
   });
 
@@ -441,20 +469,48 @@ export default function RunDetailPage() {
         {/* Progress */}
         <div className="bg-slate-900 rounded-xl border border-slate-700 p-5">
           {(() => {
-            const DONE = new Set(['completed', 'failed', 'skipped']);
-            const total = stepRuns?.length ?? 0;
-            const done = stepRuns?.filter((s) => DONE.has(s.status)).length ?? 0;
-            const calcPct = run.status === 'completed' ? 100
-              : run.status === 'not_started' ? 0
-              : total > 0 ? Math.round((done / total) * 100)
-              : (run.progress ?? 0);
+            const { pct, detail } = parseProgress(run);
+            const total = detail?.total ?? 0;
+            const barColor = runStatusColor(run.status);
             return (
               <>
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-sm font-semibold text-slate-200">Progress</h2>
-                  <span className="text-sm font-semibold text-slate-300">{calcPct}%{total > 0 && <span className="text-xs text-slate-500 ml-1">({done}/{total} steps)</span>}</span>
+                  <span className="text-sm font-semibold text-slate-300">
+                    {pct}%
+                    {total > 0 && <span className="text-xs text-slate-500 ml-1">({total} steps)</span>}
+                  </span>
                 </div>
-                <ProgressBar value={calcPct} color={run.status === 'failed' ? 'red' : run.status === 'completed' ? 'green' : 'indigo'} />
+                <ProgressBar value={pct} color={barColor} />
+                {detail && total > 0 && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs">
+                    {detail.completed > 0 && (
+                      <span className="flex items-center gap-1 text-green-400">
+                        <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />{detail.completed} completed
+                      </span>
+                    )}
+                    {detail.in_progress > 0 && (
+                      <span className="flex items-center gap-1 text-blue-400">
+                        <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />{detail.in_progress} in progress
+                      </span>
+                    )}
+                    {detail.failed > 0 && (
+                      <span className="flex items-center gap-1 text-red-400">
+                        <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />{detail.failed} failed
+                      </span>
+                    )}
+                    {detail.skipped > 0 && (
+                      <span className="flex items-center gap-1 text-slate-400">
+                        <span className="w-2 h-2 rounded-full bg-slate-500 inline-block" />{detail.skipped} skipped
+                      </span>
+                    )}
+                    {detail.not_started > 0 && (
+                      <span className="flex items-center gap-1 text-slate-600">
+                        <span className="w-2 h-2 rounded-full bg-slate-700 inline-block" />{detail.not_started} not started
+                      </span>
+                    )}
+                  </div>
+                )}
               </>
             );
           })()}

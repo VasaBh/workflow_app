@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
 import { authApi } from '@/lib/api';
-import Sidebar from './Sidebar';
+import Sidebar, { navItems } from './Sidebar';
 import NotificationBell from '@/components/ui/NotificationBell';
 
 interface AppShellProps {
@@ -14,7 +14,11 @@ interface AppShellProps {
 
 export default function AppShell({ children, title }: AppShellProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const { isAuthenticated, setUser, setToken } = useAuthStore();
+
+  const navItem = navItems.find((item) => pathname === item.href || pathname.startsWith(item.href + '/'));
+  const NavIcon = navItem?.icon ?? null;
 
   useEffect(() => {
     // If not authenticated, try to restore session (noop for in-memory auth) else redirect
@@ -50,7 +54,10 @@ export default function AppShell({ children, title }: AppShellProps) {
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar */}
         <header className="flex-shrink-0 h-14 bg-slate-900 border-b border-slate-700 flex items-center justify-between px-6">
-          <h1 className="text-lg font-semibold text-slate-100">{title ?? 'Flowcraft'}</h1>
+          <h1 className="flex items-center gap-2.5 text-lg font-semibold text-slate-100">
+            {NavIcon && <NavIcon className="w-5 h-5 text-slate-400 flex-shrink-0" />}
+            {title ?? 'Flowcraft'}
+          </h1>
           <div className="flex items-center gap-2">
             <NotificationBell />
           </div>

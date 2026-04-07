@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { runsApi, blueprintsApi } from '@/lib/api';
 import AppShell from '@/components/layout/AppShell';
 import StatusBadge from '@/components/ui/StatusBadge';
-import ProgressBar from '@/components/ui/ProgressBar';
+import ProgressBar, { runStatusColor } from '@/components/ui/ProgressBar';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { Run, PaginatedResponse, RunStatus } from '@/types';
 import { Play, Clock, Search, RefreshCw, ChevronLeft, ChevronRight, Trash2, Trash } from 'lucide-react';
@@ -28,12 +28,13 @@ const ACTIVE_STATUSES = new Set(['in_progress', 'not_started', 'paused']);
 function runProgress(run: import('@/types').Run): number {
   if (run.status === 'completed') return 100;
   if (run.status === 'not_started') return 0;
+  const p = run.progress;
+  if (p && typeof p === 'object' && 'percentage' in p) return p.percentage;
   if (run.total_steps && run.total_steps > 0) {
     const pct = ((run.completed_steps ?? 0) / run.total_steps) * 100;
     return Number.isFinite(pct) ? Math.round(pct) : 0;
   }
-  const p = run.progress ?? 0;
-  return Number.isFinite(p) ? p : 0;
+  return typeof p === 'number' && Number.isFinite(p) ? p : 0;
 }
 
 export default function RunsPage() {
@@ -206,7 +207,7 @@ export default function RunsPage() {
                           <StatusBadge status={run.status as RunStatus} />
                         </td>
                         <td className="px-5 py-3.5 w-36">
-                          <ProgressBar value={runProgress(run)} showLabel color={run.status === 'completed' ? 'green' : run.status === 'failed' ? 'red' : run.status === 'paused' ? 'yellow' : 'indigo'} />
+                          <ProgressBar value={runProgress(run)} showLabel color={runStatusColor(run.status)} />
                         </td>
                         <td className="px-5 py-3.5 text-slate-400">{run.triggered_by ?? '—'}</td>
                         <td className="px-5 py-3.5 text-slate-500">

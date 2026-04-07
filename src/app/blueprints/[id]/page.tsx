@@ -6,10 +6,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { blueprintsApi, stepsApi, runsApi, scriptsApi } from '@/lib/api';
 import AppShell from '@/components/layout/AppShell';
 import StatusBadge from '@/components/ui/StatusBadge';
-import ProgressBar from '@/components/ui/ProgressBar';
+import ProgressBar, { runStatusColor } from '@/components/ui/ProgressBar';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import RoleGate from '@/components/ui/RoleGate';
-import { Blueprint, Step, Script, PaginatedResponse, Run, RunStatus } from '@/types';
+import { Blueprint, Step, Script, PaginatedResponse, Run, RunProgress, RunStatus } from '@/types';
 import {
   ArrowLeft, Play, Globe, Trash2, Plus, ChevronDown, ChevronRight,
   Code2, FileText, CheckSquare, Settings, Loader2, Pencil, Copy, Check, Clock,
@@ -49,6 +49,7 @@ type StepFormData = {
   retry_count: number;
   timeout_seconds: number;
   script_id: string;
+  script_params: Record<string, unknown>;
 };
 
 function StepNode({
@@ -154,6 +155,17 @@ function StepModal({
   submitLabel: string;
   scripts: Script[];
 }) {
+  const [paramRows, setParamRows] = useState<Array<{ key: string; value: string }>>(() =>
+    Object.entries(data.script_params ?? {}).map(([k, v]) => ({ key: k, value: String(v) }))
+  );
+
+  function updateParams(rows: Array<{ key: string; value: string }>) {
+    setParamRows(rows);
+    const params: Record<string, unknown> = {};
+    rows.forEach(({ key, value }) => { if (key.trim()) params[key.trim()] = value; });
+    onChange({ ...data, script_params: params });
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
@@ -167,7 +179,7 @@ function StepModal({
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1.5">Type</label>
-            <select value={data.type} onChange={(e) => onChange({ ...data, type: e.target.value, script_id: '' })}
+            <select value={data.type} onChange={(e) => onChange({ ...data, type: e.target.value, script_id: '', script_params: {} })}
               className="w-full px-3 py-2 text-sm bg-slate-800 text-slate-100 border border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
               <option value="manual">Manual</option>
               <option value="script">Script</option>
@@ -175,17 +187,63 @@ function StepModal({
             </select>
           </div>
           {data.type === 'script' && (
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                Script {scripts.length === 0 && <span className="ml-2 text-xs text-slate-500 font-normal">— no scripts found</span>}
-              </label>
-              <select value={data.script_id} onChange={(e) => onChange({ ...data, script_id: e.target.value })}
-                className="w-full px-3 py-2 text-sm bg-slate-800 text-slate-100 border border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="">— Select a script —</option>
-                {scripts.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.language})</option>)}
-              </select>
-              {data.script_id && <p className="mt-1 text-[11px] text-slate-500 font-mono truncate">{data.script_id}</p>}
-            </div>
+            <>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                  Script {scripts.length === 0 && <span className="ml-2 text-xs text-slate-500 font-normal">— no scripts found</span>}
+                </label>
+                <select value={data.script_id} onChange={(e) => onChange({ ...data, script_id: e.target.value })}
+                  className="w-full px-3 py-2 text-sm bg-slate-800 text-slate-100 border border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  <option value="">— Select a script —</option>
+                  {scripts.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.language})</option>)}
+                </select>
+                {data.script_id && <p className="mt-1 text-[11px] text-slate-500 font-mono truncate">{data.script_id}</p>}
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-sm font-medium text-slate-300">Script Parameters</label>
+                  <button
+                    type="button"
+                    onClick={() => updateParams([...paramRows, { key: '', value: '' }])}
+                    className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300"
+                  >
+                    <Plus className="w-3 h-3" /> Add
+                  </button>
+                </div>
+                {paramRows.length === 0 ? (
+                  <p className="text-xs text-slate-600 italic py-1">No parameters defined.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {paramRows.map((row, i) => (
+                      <div key={i} className="flex gap-2 items-center">
+                        <input
+                          type="text"
+                          placeholder="key"
+                          value={row.key}
+                          onChange={(e) => updateParams(paramRows.map((r, ri) => ri === i ? { ...r, key: e.target.value } : r))}
+                          className="flex-1 min-w-0 px-2 py-1.5 text-xs bg-slate-800 text-slate-100 placeholder-slate-600 border border-slate-600 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                        />
+                        <span className="text-slate-600 text-xs flex-shrink-0">:</span>
+                        <input
+                          type="text"
+                          placeholder="value"
+                          value={row.value}
+                          onChange={(e) => updateParams(paramRows.map((r, ri) => ri === i ? { ...r, value: e.target.value } : r))}
+                          className="flex-1 min-w-0 px-2 py-1.5 text-xs bg-slate-800 text-slate-100 placeholder-slate-600 border border-slate-600 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => updateParams(paramRows.filter((_, ri) => ri !== i))}
+                          className="flex-shrink-0 p-1 text-slate-600 hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
           )}
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1.5">On Failure</label>
@@ -226,7 +284,7 @@ function StepModal({
   );
 }
 
-const EMPTY_STEP: StepFormData = { name: '', type: 'manual', order: 1, on_failure: 'block', retry_count: 0, timeout_seconds: 300, script_id: '' };
+const EMPTY_STEP: StepFormData = { name: '', type: 'manual', order: 1, on_failure: 'block', retry_count: 0, timeout_seconds: 300, script_id: '', script_params: {} };
 
 export default function BlueprintDetailPage() {
   const params = useParams();
@@ -307,9 +365,10 @@ export default function BlueprintDetailPage() {
 
   const runMutation = useMutation({
     mutationFn: () => runsApi.create(id),
-    onSuccess: (res) => {
+    onSuccess: () => {
       toast.success('Run started');
-      router.push(`/runs/${res.data.id}`);
+      qc.invalidateQueries({ queryKey: ['blueprint-runs', id] });
+      qc.invalidateQueries({ queryKey: ['blueprint', id] });
     },
     onError: (err: unknown) => toast.error((err as Error).message || 'Failed to start run'),
   });
@@ -325,6 +384,7 @@ export default function BlueprintDetailPage() {
         timeout_seconds: newStep.timeout_seconds,
         dependencies: [],
         ...(newStep.type === 'script' && newStep.script_id ? { script_id: newStep.script_id } : {}),
+        ...(newStep.type === 'script' ? { script_params: newStep.script_params } : {}),
       }),
     onSuccess: () => {
       qc.refetchQueries({ queryKey: ['steps', id] });
@@ -345,6 +405,7 @@ export default function BlueprintDetailPage() {
         retry_count: editData.retry_count,
         timeout_seconds: editData.timeout_seconds,
         script_id: editData.type === 'script' && editData.script_id ? editData.script_id : null,
+        ...(editData.type === 'script' ? { script_params: editData.script_params } : { script_params: null }),
       }),
     onSuccess: () => {
       qc.refetchQueries({ queryKey: ['steps', id] });
@@ -382,6 +443,7 @@ export default function BlueprintDetailPage() {
       retry_count: step.retry_count,
       timeout_seconds: step.timeout_seconds,
       script_id: step.script_id ?? '',
+      script_params: (step.script_params as Record<string, unknown>) ?? {},
     });
   }
 
@@ -585,7 +647,12 @@ export default function BlueprintDetailPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-700/50">
                   {blueprintRuns.map((run) => {
-                    const pct = run.status === 'completed' ? 100 : run.status === 'not_started' ? 0 : (run.progress ?? 0);
+                    const p = run.progress;
+                    const detail = (p && typeof p === 'object' && 'percentage' in p) ? p as RunProgress : null;
+                    const pct = run.status === 'completed' ? 100
+                      : run.status === 'not_started' ? 0
+                      : detail ? detail.percentage
+                      : typeof p === 'number' && Number.isFinite(p) ? p : 0;
                     return (
                       <tr key={run.id} className="hover:bg-slate-800/50 transition-colors">
                         <td className="px-5 py-3">
@@ -594,8 +661,13 @@ export default function BlueprintDetailPage() {
                           </Link>
                         </td>
                         <td className="px-5 py-3"><StatusBadge status={run.status as RunStatus} /></td>
-                        <td className="px-5 py-3 w-32">
-                          <ProgressBar value={pct} showLabel color={run.status === 'completed' ? 'green' : run.status === 'failed' ? 'red' : run.status === 'paused' ? 'yellow' : 'indigo'} />
+                        <td className="px-5 py-3 w-40">
+                          <ProgressBar value={pct} showLabel color={runStatusColor(run.status as RunStatus)} />
+                          {detail && detail.total > 0 && (
+                            <p className="text-[10px] text-slate-600 mt-0.5 leading-tight">
+                              {detail.completed}✓ {detail.failed > 0 ? `${detail.failed}✗ ` : ''}{detail.skipped > 0 ? `${detail.skipped} skip ` : ''}{detail.in_progress > 0 ? `${detail.in_progress} active` : ''}
+                            </p>
+                          )}
                         </td>
                         <td className="px-5 py-3 text-slate-400">{run.triggered_by ?? '—'}</td>
                         <td className="px-5 py-3 text-slate-500 whitespace-nowrap">
