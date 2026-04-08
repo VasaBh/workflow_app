@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { runsApi, blueprintsApi } from '@/lib/api';
 import AppShell from '@/components/layout/AppShell';
@@ -17,8 +18,11 @@ import {
   Tooltip,
   BarChart,
   Bar,
+  ScatterChart,
+  Scatter,
   XAxis,
   YAxis,
+  ZAxis,
   CartesianGrid,
   Legend,
 } from 'recharts';
@@ -101,6 +105,29 @@ export default function DashboardPage() {
     else if (r.status === 'cancelled')   bpRunCounts[k].cancelled++;
   }
   const barData = Object.values(bpRunCounts).slice(0, 8);
+
+  // Scatter chart: runs over time per blueprint
+  const [scatterBpId, setScatterBpId] = useState('');
+  const scatterRuns = scatterBpId ? runs.filter((r) => r.blueprint_id === scatterBpId) : runs;
+
+  const SCATTER_STATUSES = ['completed', 'in_progress', 'failed', 'paused', 'cancelled'] as const;
+  const dayStatusCounts: Record<string, Record<string, number>> = {};
+  for (const r of scatterRuns) {
+    const d = r.started_at ?? r.created_at;
+    if (!d) continue;
+    const day = format(new Date(d), 'yyyy-MM-dd');
+    if (!dayStatusCounts[day]) dayStatusCounts[day] = {};
+    dayStatusCounts[day][r.status] = (dayStatusCounts[day][r.status] ?? 0) + 1;
+  }
+  const scatterData: Record<string, Array<{ x: number; y: number; date: string }>> = {};
+  for (const st of SCATTER_STATUSES) scatterData[st] = [];
+  for (const [day, counts] of Object.entries(dayStatusCounts).sort()) {
+    const ts = new Date(day).getTime();
+    for (const st of SCATTER_STATUSES) {
+      if (counts[st]) scatterData[st].push({ x: ts, y: counts[st], date: day });
+    }
+  }
+  const hasScatterData = SCATTER_STATUSES.some((st) => scatterData[st].length > 0);
 
   const statCards = [
     { label: 'Total Blueprints', value: totalBlueprints, sub: `${publishedBlueprints} published`, icon: GitBranch, color: 'text-indigo-400', bg: 'bg-indigo-900/30' },
@@ -259,30 +286,83 @@ export default function DashboardPage() {
             )}
           </div>
 
+          {/* Runs Over Time scatter */}
           <div className="bg-slate-900 rounded-xl border border-slate-700 p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <GitBranch className="w-4 h-4 text-slate-400" />
-              <h2 className="text-sm font-semibold text-slate-200">Runs per Blueprint</h2>
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-slate-400" />
+                <h2 className="text-sm font-semibold text-slate-200">Runs Over Time</h2>
+              </div>
+              <select
+                value={scatterBpId}
+                onChange={(e) => setScatterBpId(e.target.value)}
+                className="px-3 py-1.5 text-xs bg-slate-800 text-slate-200 border border-slate-600 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              >
+                <option value="">All Blueprints</option>
+                {blueprints.map((bp) => (
+                  <option key={bp.id} value={bp.id}>{bp.name}</option>
+                ))}
+              </select>
             </div>
-            {barData.length === 0 ? (
+            {!hasScatterData ? (
               <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
             ) : (
               <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={barData} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+                <ScatterChart margin={{ top: 10, right: 20, left: -10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                  <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} />
-                  <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #334155', background: '#1e293b', fontSize: 12, color: '#f1f5f9' }} />
-                  <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-                  <Bar dataKey="completed"   stackId="a" fill="#22c55e" name="Completed" />
-                  <Bar dataKey="in_progress" stackId="a" fill="#3b82f6" name="In Progress" />
-                  <Bar dataKey="failed"      stackId="a" fill="#ef4444" name="Failed" />
-                  <Bar dataKey="paused"      stackId="a" fill="#f97316" name="Paused" />
-                  <Bar dataKey="cancelled"   stackId="a" fill="#64748b" name="Cancelled" radius={[4, 4, 0, 0]} />
-                </BarChart>
+                  <XAxis dataKey="x" type="number" domain={['auto', 'auto']} scale="time"
+                    tickFormatter={(ts) => format(new Date(ts), 'MMM d')}
+                    tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={false} />
+                  <YAxis dataKey="y" type="number" allowDecimals={false}
+                    tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={false} />
+                  <ZAxis range={[40, 40]} />
+                  <Tooltip cursor={{ strokeDasharray: '3 3', stroke: '#475569' }}
+                    content={({ payload }) => {
+                      if (!payload?.length) return null;
+                      const { date, y } = payload[0].payload as { date: string; y: number };
+                      const name = payload[0].name as string;
+                      return (
+                        <div className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs shadow-lg">
+                          <p className="text-slate-300 font-medium mb-1">{date}</p>
+                          <p style={{ color: STATUS_COLORS[name] ?? '#94a3b8' }}>{name}: <span className="font-bold">{y}</span></p>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8', paddingTop: 8 }} />
+                  {SCATTER_STATUSES.filter((st) => scatterData[st].length > 0).map((st) => (
+                    <Scatter key={st} name={st.replace(/_/g, ' ')} data={scatterData[st]} fill={STATUS_COLORS[st]} />
+                  ))}
+                </ScatterChart>
               </ResponsiveContainer>
             )}
           </div>
+        </div>
+
+        {/* Runs per Blueprint bar chart — full width */}
+        <div className="bg-slate-900 rounded-xl border border-slate-700 p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <GitBranch className="w-4 h-4 text-slate-400" />
+            <h2 className="text-sm font-semibold text-slate-200">Runs per Blueprint</h2>
+          </div>
+          {barData.length === 0 ? (
+            <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={barData} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} />
+                <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #334155', background: '#1e293b', fontSize: 12, color: '#f1f5f9' }} />
+                <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
+                <Bar dataKey="completed"   stackId="a" fill="#22c55e" name="Completed" />
+                <Bar dataKey="in_progress" stackId="a" fill="#3b82f6" name="In Progress" />
+                <Bar dataKey="failed"      stackId="a" fill="#ef4444" name="Failed" />
+                <Bar dataKey="paused"      stackId="a" fill="#f97316" name="Paused" />
+                <Bar dataKey="cancelled"   stackId="a" fill="#64748b" name="Cancelled" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
       </div>
