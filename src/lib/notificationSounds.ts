@@ -146,6 +146,23 @@ export async function playNotificationSound(
   }
 }
 
+/**
+ * Call once on the first user interaction (click/keydown) to unlock the
+ * AudioContext so that subsequent programmatic sounds (e.g. from WebSocket
+ * notifications) are allowed by the browser.
+ */
+export function unlockAudio(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const ctx = getAudioContext();
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
+    }
+  } catch {
+    // ignore — audio simply won't play
+  }
+}
+
 export function isAudioSupported(): boolean {
   if (typeof window === "undefined") return false;
   return !!(

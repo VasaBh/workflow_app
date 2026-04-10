@@ -1,14 +1,33 @@
 "use client";
 
 import { useState } from "react";
-import { Volume2, VolumeX, Zap } from "lucide-react";
+import { Volume2, VolumeX, Zap, Play } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import { useNotificationStore } from "@/store/notifications";
+import { playNotificationSound, unlockAudio } from "@/lib/notificationSounds";
 
 export default function SettingsPage() {
-  const { settings, toggleSound, toggleAnimations, setSoundVolume } =
+  const { settings, toggleSound, toggleAnimations, setSoundVolume, setLiveMessage } =
     useNotificationStore();
   const [savedMessage, setSavedMessage] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  const handleTest = async () => {
+    setTesting(true);
+    unlockAudio();
+    if (settings.enableSound) {
+      await playNotificationSound("run_completed", settings.soundVolume).catch(console.warn);
+    }
+    if (settings.enableAnimations) {
+      setLiveMessage({
+        title: "Run Completed",
+        message: "Test notification — sound and toast are working.",
+        event_type: "run_completed",
+      });
+      setTimeout(() => setLiveMessage(null), 6000);
+    }
+    setTimeout(() => setTesting(false), 1000);
+  };
 
   const handleSoundToggle = () => {
     toggleSound();
@@ -190,6 +209,28 @@ export default function SettingsPage() {
                 </ul>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Test Card */}
+        <div className="bg-slate-900 border border-slate-700 rounded-xl p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-200">
+                Test Notifications
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Fire a sample run_completed event to verify sound and toast are working
+              </p>
+            </div>
+            <button
+              onClick={handleTest}
+              disabled={testing}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-lg transition-colors"
+            >
+              <Play className="w-4 h-4" />
+              {testing ? "Testing…" : "Test"}
+            </button>
           </div>
         </div>
 

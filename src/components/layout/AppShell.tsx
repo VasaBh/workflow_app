@@ -8,6 +8,7 @@ import { authApi } from "@/lib/api";
 import Sidebar, { navItems } from "./Sidebar";
 import NotificationBell from "@/components/ui/NotificationBell";
 import NotificationToast from "@/components/ui/NotificationToast";
+import { unlockAudio } from "@/lib/notificationSounds";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -29,6 +30,17 @@ export default function AppShell({ children, title }: AppShellProps) {
     // Hydrate notification settings on mount
     hydrate();
   }, [hydrate]);
+
+  // Unlock Web Audio API on first user interaction so WS-triggered sounds work
+  useEffect(() => {
+    const unlock = () => unlockAudio();
+    document.addEventListener("click", unlock, { once: true });
+    document.addEventListener("keydown", unlock, { once: true });
+    return () => {
+      document.removeEventListener("click", unlock);
+      document.removeEventListener("keydown", unlock);
+    };
+  }, []);
 
   useEffect(() => {
     // If not authenticated, try to restore session (noop for in-memory auth) else redirect
