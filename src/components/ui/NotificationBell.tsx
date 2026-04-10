@@ -79,36 +79,78 @@ export default function NotificationBell() {
     const token = getAccessToken();
     if (!token) return;
     const ws = createNotificationWebSocket(token, (data) => {
-      qc.invalidateQueries({ queryKey: ["notifications"] });
       lastWsFiredRef.current = Date.now();
 
-      // Flash bell
-      setBellFlash(true);
-      setTimeout(() => setBellFlash(false), 1200);
-
       const raw = data as Record<string, unknown>;
-      // Unwrap possible wrapper formats: {notification:{...}}, {data:{...}}, or flat
+
+      // ── Expected format: { type:"notifications", notifications:[...], unread_count:N }
+      if (raw.type === "notifications" && Array.isArray(raw.notifications)) {
+        // Patch unread count immediately — no waiting for poll
+        if (typeof raw.unread_count === "number") {
+          qc.setQueryData(["notifications", "unread-count"], {
+            unread_count: raw.unread_count,
+          });
+        }
+        qc.invalidateQueries({ queryKey: ["notifications"] });
+
+        type WsNotif = {
+          id: string;
+          event_type?: string;
+          title?: string;
+          message?: string;
+          read?: boolean;
+        };
+        const incoming = (raw.notifications as WsNotif[]).filter((n) => !n.read);
+        if (!incoming.length) return;
+
+        // Show toast for the first new notification not already shown
+        const first = incoming.find((n) => !shownToastIds.current.has(n.id));
+        if (!first) return;
+        shownToastIds.current.add(first.id);
+
+        const eventType = first.event_type ?? "";
+        const title = first.title || eventType.replace(/_/g, " ");
+        const message = first.message ?? "";
+
+        setBellFlash(true);
+        setTimeout(() => setBellFlash(false), 1200);
+
+        if (settings.enableSound && eventType) {
+          playNotificationSound(eventType as any, settings.soundVolume).catch(
+            console.warn,
+          );
+        }
+
+        setLiveMessage({ title, message, event_type: eventType || undefined });
+        if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
+        liveTimerRef.current = setTimeout(() => setLiveMessage(null), 8000);
+        return;
+      }
+
+      // ── Fallback for other single-notification formats
+      qc.invalidateQueries({ queryKey: ["notifications"] });
+
       const payload = (
         (raw?.notification as Record<string, unknown>) ??
         (raw?.data as Record<string, unknown>) ??
         raw
       );
-
       const eventType = String(payload?.event_type ?? raw?.event_type ?? "");
       const title = String(payload?.title ?? raw?.title ?? "");
       const message = String(payload?.message ?? raw?.message ?? "");
       const notifId = String(payload?.id ?? raw?.id ?? "");
 
-      // Skip non-notification messages (ping, connection ack, etc.)
       if (!eventType && !title) return;
 
       if (notifId) shownToastIds.current.add(notifId);
 
+      setBellFlash(true);
+      setTimeout(() => setBellFlash(false), 1200);
+
       if (settings.enableSound && eventType) {
-        playNotificationSound(
-          eventType as any,
-          settings.soundVolume,
-        ).catch((err) => console.warn("Failed to play sound:", err));
+        playNotificationSound(eventType as any, settings.soundVolume).catch(
+          console.warn,
+        );
       }
 
       setLiveMessage({

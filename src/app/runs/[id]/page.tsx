@@ -337,6 +337,51 @@ export default function RunDetailPage() {
   useEffect(() => {
     const token = getAccessToken() ?? '';
     const ws = createRunWebSocket(id, token, (data) => {
+      const msg = data as {
+        run_id?: string;
+        run_status?: string;
+        step_updates?: Array<{
+          step_run_id: string;
+          step_id: string;
+          name: string;
+          status: string;
+          started_at?: string | null;
+          completed_at?: string | null;
+        }>;
+        timestamp?: string;
+      };
+
+      // Patch run status immediately — no waiting for refetch
+      if (msg.run_status) {
+        qc.setQueryData<Run>(['run', id], (old) =>
+          old ? { ...old, status: msg.run_status as RunStatus } : old,
+        );
+      }
+
+      // Patch step statuses immediately
+      if (msg.step_updates?.length) {
+        const applyUpdates = (steps: StepRun[]): StepRun[] =>
+          steps.map((s) => {
+            const u = msg.step_updates!.find((u) => u.step_run_id === s.id);
+            const patched = u
+              ? {
+                  ...s,
+                  status: u.status as StepStatus,
+                  started_at: u.started_at ?? s.started_at,
+                  completed_at: u.completed_at ?? s.completed_at,
+                }
+              : s;
+            return patched.children?.length
+              ? { ...patched, children: applyUpdates(patched.children) }
+              : patched;
+          });
+
+        qc.setQueryData<StepRun[]>(['run-steps', id], (old) =>
+          old ? applyUpdates(old) : old,
+        );
+      }
+
+      // Still invalidate to pull full data (progress %, duration, etc.)
       qc.invalidateQueries({ queryKey: ['run', id] });
       qc.invalidateQueries({ queryKey: ['run-steps', id] });
     });
