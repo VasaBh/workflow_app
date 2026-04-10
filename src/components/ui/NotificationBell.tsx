@@ -103,6 +103,8 @@ export default function NotificationBell() {
         reference_id?: string; // run_id
       };
 
+      const RUN_EVENTS = new Set(["run_started", "run_completed", "run_failed"]);
+
       // Fetch blueprint_name for a run_id, patch liveMessage once resolved
       const enrichWithBlueprint = (runId: string) => {
         const cached = qc.getQueryData<{ blueprint_name?: string }>(['run', runId]);
@@ -139,19 +141,21 @@ export default function NotificationBell() {
         const title = first.title || eventType.replace(/_/g, " ");
         const message = first.message ?? "";
         const runId = first.reference_id ?? "";
+        const isRunEvent = RUN_EVENTS.has(eventType);
 
         setBellFlash(true);
         setTimeout(() => setBellFlash(false), 1200);
 
-        if (s.enableSound && eventType) {
+        if (isRunEvent && s.enableSound) {
           playNotificationSound(eventType as any, s.soundVolume).catch(console.warn);
         }
 
-        setMsg({ title, message, event_type: eventType || undefined, run_id: runId || undefined });
-        if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
-        liveTimerRef.current = setTimeout(() => setMsg(null), 8000);
-
-        if (runId) enrichWithBlueprint(runId);
+        if (isRunEvent) {
+          setMsg({ title, message, event_type: eventType || undefined, run_id: runId || undefined });
+          if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
+          liveTimerRef.current = setTimeout(() => setMsg(null), 8000);
+          if (runId) enrichWithBlueprint(runId);
+        }
         return;
       }
 
@@ -170,26 +174,27 @@ export default function NotificationBell() {
       const runId = String(payload?.reference_id ?? payload?.run_id ?? raw?.reference_id ?? raw?.run_id ?? "");
 
       if (!eventType && !title) return;
-
       if (notifId) shownToastIds.current.add(notifId);
+
+      const isRunEvent = RUN_EVENTS.has(eventType);
 
       setBellFlash(true);
       setTimeout(() => setBellFlash(false), 1200);
 
-      if (s.enableSound && eventType) {
-        playNotificationSound(eventType as any, s.soundVolume).catch(console.warn);
+      if (isRunEvent) {
+        if (s.enableSound) {
+          playNotificationSound(eventType as any, s.soundVolume).catch(console.warn);
+        }
+        setMsg({
+          title: title || eventType.replace(/_/g, " "),
+          message,
+          event_type: eventType || undefined,
+          run_id: runId || undefined,
+        });
+        if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
+        liveTimerRef.current = setTimeout(() => setMsg(null), 8000);
+        if (runId) enrichWithBlueprint(runId);
       }
-
-      setMsg({
-        title: title || eventType.replace(/_/g, " "),
-        message,
-        event_type: eventType || undefined,
-        run_id: runId || undefined,
-      });
-      if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
-      liveTimerRef.current = setTimeout(() => setMsg(null), 8000);
-
-      if (runId) enrichWithBlueprint(runId);
     });
     ws.onopen = () => setWsConnected(true);
     ws.onclose = () => setWsConnected(false);
@@ -220,8 +225,12 @@ export default function NotificationBell() {
         if (!latest || latest.read || shownToastIds.current.has(latest.id)) return;
 
         shownToastIds.current.add(latest.id);
+
+        const isRunEvent = ["run_started", "run_completed", "run_failed"].includes(latest.event_type);
         setBellFlash(true);
         setTimeout(() => setBellFlash(false), 1200);
+
+        if (!isRunEvent) return;
 
         const { settings: s } = useNotificationStore.getState();
         if (s.enableSound) {
