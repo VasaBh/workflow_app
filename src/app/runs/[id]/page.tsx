@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { runsApi, blueprintsApi } from '@/lib/api';
+import { runsApi, blueprintsApi, getAccessToken } from '@/lib/api';
 import { createRunWebSocket } from '@/lib/ws';
 import AppShell from '@/components/layout/AppShell';
 import StatusBadge from '@/components/ui/StatusBadge';
@@ -335,7 +335,8 @@ export default function RunDetailPage() {
 
   // WebSocket for live updates
   useEffect(() => {
-    const ws = createRunWebSocket(id, (data) => {
+    const token = getAccessToken() ?? '';
+    const ws = createRunWebSocket(id, token, (data) => {
       qc.invalidateQueries({ queryKey: ['run', id] });
       qc.invalidateQueries({ queryKey: ['run-steps', id] });
     });
