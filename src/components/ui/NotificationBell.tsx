@@ -13,7 +13,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { notificationsApi } from "@/lib/api";
+import { notificationsApi, runsApi } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { createNotificationWebSocket } from "@/lib/ws";
 import { getAccessToken } from "@/lib/api";
@@ -100,6 +100,23 @@ export default function NotificationBell() {
         title?: string;
         message?: string;
         read?: boolean;
+        reference_id?: string; // run_id
+      };
+
+      // Fetch blueprint_name for a run_id, patch liveMessage once resolved
+      const enrichWithBlueprint = (runId: string) => {
+        const cached = qc.getQueryData<{ blueprint_name?: string }>(['run', runId]);
+        if (cached?.blueprint_name) {
+          const cur = useNotificationStore.getState().liveMessage;
+          if (cur) setMsg({ ...cur, blueprint_name: cached.blueprint_name });
+          return;
+        }
+        runsApi.get(runId).then((res) => {
+          const bpName = res.data?.blueprint_name;
+          if (!bpName) return;
+          const cur = useNotificationStore.getState().liveMessage;
+          if (cur) setMsg({ ...cur, blueprint_name: bpName });
+        }).catch(() => {});
       };
 
       // ── Expected format: { type:"notifications", notifications:[...], unread_count:N }
@@ -121,6 +138,7 @@ export default function NotificationBell() {
         const eventType = first.event_type ?? "";
         const title = first.title || eventType.replace(/_/g, " ");
         const message = first.message ?? "";
+        const runId = first.reference_id ?? "";
 
         setBellFlash(true);
         setTimeout(() => setBellFlash(false), 1200);
@@ -129,9 +147,11 @@ export default function NotificationBell() {
           playNotificationSound(eventType as any, s.soundVolume).catch(console.warn);
         }
 
-        setMsg({ title, message, event_type: eventType || undefined });
+        setMsg({ title, message, event_type: eventType || undefined, run_id: runId || undefined });
         if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
         liveTimerRef.current = setTimeout(() => setMsg(null), 8000);
+
+        if (runId) enrichWithBlueprint(runId);
         return;
       }
 
@@ -147,6 +167,7 @@ export default function NotificationBell() {
       const title = String(payload?.title ?? raw?.title ?? "");
       const message = String(payload?.message ?? raw?.message ?? "");
       const notifId = String(payload?.id ?? raw?.id ?? "");
+      const runId = String(payload?.reference_id ?? payload?.run_id ?? raw?.reference_id ?? raw?.run_id ?? "");
 
       if (!eventType && !title) return;
 
@@ -163,9 +184,12 @@ export default function NotificationBell() {
         title: title || eventType.replace(/_/g, " "),
         message,
         event_type: eventType || undefined,
+        run_id: runId || undefined,
       });
       if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
       liveTimerRef.current = setTimeout(() => setMsg(null), 8000);
+
+      if (runId) enrichWithBlueprint(runId);
     });
     ws.onopen = () => setWsConnected(true);
     ws.onclose = () => setWsConnected(false);
@@ -206,13 +230,23 @@ export default function NotificationBell() {
             s.soundVolume,
           ).catch(console.warn);
         }
+        const runId = latest.run_id ?? "";
         setLiveMessage({
           title: latest.title,
           message: latest.message,
           event_type: latest.event_type,
+          run_id: runId || undefined,
         });
         if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
         liveTimerRef.current = setTimeout(() => setLiveMessage(null), 8000);
+        if (runId) {
+          runsApi.get(runId).then((res) => {
+            const bpName = res.data?.blueprint_name;
+            if (!bpName) return;
+            const cur = useNotificationStore.getState().liveMessage;
+            if (cur) setLiveMessage({ ...cur, blueprint_name: bpName });
+          }).catch(() => {});
+        }
       })
       .catch(console.warn);
   }, [countData]); // eslint-disable-line react-hooks/exhaustive-deps

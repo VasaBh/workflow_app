@@ -9,7 +9,9 @@ import {
   Clock,
   Calendar,
   Bell,
+  ArrowRight,
 } from "lucide-react";
+import Link from "next/link";
 import { useNotificationStore, LiveMessage } from "@/store/notifications";
 import clsx from "clsx";
 
@@ -124,13 +126,20 @@ export default function NotificationToast() {
       <div className="flex items-start gap-3 p-4">
         <Icon className={clsx("w-5 h-5 flex-shrink-0 mt-0.5", cfg.iconClass)} />
         <div className="flex-1 min-w-0">
-          {localMsg.event_type && (
-            <span
-              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${cfg.badgeClass}`}
-            >
-              {localMsg.event_type.replace(/_/g, " ")}
-            </span>
-          )}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {localMsg.event_type && (
+              <span
+                className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${cfg.badgeClass}`}
+              >
+                {localMsg.event_type.replace(/_/g, " ")}
+              </span>
+            )}
+            {localMsg.blueprint_name && (
+              <span className="text-[10px] text-slate-400 truncate max-w-[140px]">
+                {localMsg.blueprint_name}
+              </span>
+            )}
+          </div>
           {localMsg.title && (
             <p className="text-sm font-medium text-slate-100 mt-1 truncate">
               {localMsg.title}
@@ -140,6 +149,15 @@ export default function NotificationToast() {
             <p className="text-xs text-slate-300 mt-0.5 line-clamp-2">
               {localMsg.message}
             </p>
+          )}
+          {localMsg.run_id && (
+            <Link
+              href={`/runs/${localMsg.run_id}`}
+              onClick={dismiss}
+              className="inline-flex items-center gap-0.5 text-[11px] text-indigo-400 hover:text-indigo-300 mt-1.5 transition-colors"
+            >
+              View run <ArrowRight className="w-3 h-3" />
+            </Link>
           )}
         </div>
         <button

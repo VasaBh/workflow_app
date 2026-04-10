@@ -12,6 +12,8 @@ export interface LiveMessage {
   title: string;
   message: string;
   event_type?: string;
+  run_id?: string;
+  blueprint_name?: string;
 }
 
 const defaultSettings: NotificationSettings = {
