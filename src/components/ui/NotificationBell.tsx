@@ -36,7 +36,11 @@ const EVENT_COLORS: Record<string, string> = {
 export default function NotificationBell() {
   const qc = useQueryClient();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const { settings, toggleSound, toggleAnimations, hydrate, setLiveMessage, liveMessage } =
+  // Use selectors so the component only re-renders when these specific fields change.
+  // This prevents the WS useEffect from reconnecting every time liveMessage changes.
+  const settings = useNotificationStore((s) => s.settings);
+  const liveMessage = useNotificationStore((s) => s.liveMessage);
+  const { toggleSound, toggleAnimations, hydrate, setLiveMessage } =
     useNotificationStore();
   const wsRef = useRef<WebSocket | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -81,11 +85,25 @@ export default function NotificationBell() {
     const ws = createNotificationWebSocket(token, (data) => {
       lastWsFiredRef.current = Date.now();
 
+      // Always read the LATEST settings — avoids stale closure bugs.
+      // (Using getState() instead of closing over `settings` from render
+      //  also means we don't need `settings` in the deps array, so the WS
+      //  won't reconnect whenever liveMessage or any other store field changes.)
+      const { settings: s, setLiveMessage: setMsg } =
+        useNotificationStore.getState();
+
       const raw = data as Record<string, unknown>;
+
+      type WsNotif = {
+        id: string;
+        event_type?: string;
+        title?: string;
+        message?: string;
+        read?: boolean;
+      };
 
       // ── Expected format: { type:"notifications", notifications:[...], unread_count:N }
       if (raw.type === "notifications" && Array.isArray(raw.notifications)) {
-        // Patch unread count immediately — no waiting for poll
         if (typeof raw.unread_count === "number") {
           qc.setQueryData(["notifications", "unread-count"], {
             unread_count: raw.unread_count,
@@ -93,17 +111,9 @@ export default function NotificationBell() {
         }
         qc.invalidateQueries({ queryKey: ["notifications"] });
 
-        type WsNotif = {
-          id: string;
-          event_type?: string;
-          title?: string;
-          message?: string;
-          read?: boolean;
-        };
         const incoming = (raw.notifications as WsNotif[]).filter((n) => !n.read);
         if (!incoming.length) return;
 
-        // Show toast for the first new notification not already shown
         const first = incoming.find((n) => !shownToastIds.current.has(n.id));
         if (!first) return;
         shownToastIds.current.add(first.id);
@@ -115,19 +125,17 @@ export default function NotificationBell() {
         setBellFlash(true);
         setTimeout(() => setBellFlash(false), 1200);
 
-        if (settings.enableSound && eventType) {
-          playNotificationSound(eventType as any, settings.soundVolume).catch(
-            console.warn,
-          );
+        if (s.enableSound && eventType) {
+          playNotificationSound(eventType as any, s.soundVolume).catch(console.warn);
         }
 
-        setLiveMessage({ title, message, event_type: eventType || undefined });
+        setMsg({ title, message, event_type: eventType || undefined });
         if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
-        liveTimerRef.current = setTimeout(() => setLiveMessage(null), 8000);
+        liveTimerRef.current = setTimeout(() => setMsg(null), 8000);
         return;
       }
 
-      // ── Fallback for other single-notification formats
+      // ── Fallback for flat / wrapped single-notification formats
       qc.invalidateQueries({ queryKey: ["notifications"] });
 
       const payload = (
@@ -147,19 +155,17 @@ export default function NotificationBell() {
       setBellFlash(true);
       setTimeout(() => setBellFlash(false), 1200);
 
-      if (settings.enableSound && eventType) {
-        playNotificationSound(eventType as any, settings.soundVolume).catch(
-          console.warn,
-        );
+      if (s.enableSound && eventType) {
+        playNotificationSound(eventType as any, s.soundVolume).catch(console.warn);
       }
 
-      setLiveMessage({
+      setMsg({
         title: title || eventType.replace(/_/g, " "),
         message,
         event_type: eventType || undefined,
       });
       if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
-      liveTimerRef.current = setTimeout(() => setLiveMessage(null), 8000);
+      liveTimerRef.current = setTimeout(() => setMsg(null), 8000);
     });
     ws.onopen = () => setWsConnected(true);
     ws.onclose = () => setWsConnected(false);
@@ -169,7 +175,7 @@ export default function NotificationBell() {
       ws.close();
       if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
     };
-  }, [isAuthenticated, qc, settings]);
+  }, [isAuthenticated, qc]); // ← `settings` removed: use getState() instead
 
   // Polling fallback: if count increases but WS didn't fire (connection issue, page was
   // backgrounded, etc.) — fetch the latest notification and trigger toast + sound.
