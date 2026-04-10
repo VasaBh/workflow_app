@@ -1,11 +1,13 @@
-'use client';
+"use client";
 
-import { useEffect } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
-import { useAuthStore } from '@/store/auth';
-import { authApi } from '@/lib/api';
-import Sidebar, { navItems } from './Sidebar';
-import NotificationBell from '@/components/ui/NotificationBell';
+import { useEffect } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import { useAuthStore } from "@/store/auth";
+import { useNotificationStore } from "@/store/notifications";
+import { authApi } from "@/lib/api";
+import Sidebar, { navItems } from "./Sidebar";
+import NotificationBell from "@/components/ui/NotificationBell";
+import NotificationToast from "@/components/ui/NotificationToast";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -16,28 +18,39 @@ export default function AppShell({ children, title }: AppShellProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { isAuthenticated, setUser, setToken } = useAuthStore();
+  const { hydrate } = useNotificationStore();
 
-  const navItem = navItems.find((item) => pathname === item.href || pathname.startsWith(item.href + '/'));
+  const navItem = navItems.find(
+    (item) => pathname === item.href || pathname.startsWith(item.href + "/"),
+  );
   const NavIcon = navItem?.icon ?? null;
+
+  useEffect(() => {
+    // Hydrate notification settings on mount
+    hydrate();
+  }, [hydrate]);
 
   useEffect(() => {
     // If not authenticated, try to restore session (noop for in-memory auth) else redirect
     if (!isAuthenticated) {
       // Check if there's a stored token attempt — for now, redirect to login
-      router.replace('/login');
+      router.replace("/login");
     }
   }, [isAuthenticated, router]);
 
   useEffect(() => {
     // Optionally refresh user profile on mount
     if (isAuthenticated) {
-      authApi.me().then((res) => {
-        setUser(res.data);
-      }).catch(() => {
-        // silently fail
-      });
+      authApi
+        .me()
+        .then((res) => {
+          setUser(res.data);
+        })
+        .catch(() => {
+          // silently fail
+        });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!isAuthenticated) {
@@ -55,18 +68,20 @@ export default function AppShell({ children, title }: AppShellProps) {
         {/* Top bar */}
         <header className="flex-shrink-0 h-14 bg-slate-900 border-b border-slate-700 flex items-center justify-between px-6">
           <h1 className="flex items-center gap-2.5 text-lg font-semibold text-slate-100">
-            {NavIcon && <NavIcon className="w-5 h-5 text-slate-400 flex-shrink-0" />}
-            {title ?? 'Flowcraft'}
+            {NavIcon && (
+              <NavIcon className="w-5 h-5 text-slate-400 flex-shrink-0" />
+            )}
+            {title ?? "Flowcraft"}
           </h1>
           <div className="flex items-center gap-2">
             <NotificationBell />
           </div>
         </header>
         {/* Main content */}
-        <main className="flex-1 overflow-y-auto">
-          {children}
-        </main>
+        <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
+      {/* Global floating notification toast */}
+      <NotificationToast />
     </div>
   );
 }
