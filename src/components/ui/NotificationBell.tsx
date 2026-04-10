@@ -87,29 +87,37 @@ export default function NotificationBell() {
       setTimeout(() => setBellFlash(false), 1200);
 
       const raw = data as Record<string, unknown>;
-      // Handle both direct `{title, message}` and wrapped `{data: {...}}` formats
-      const msg = (raw?.notification ?? raw?.data ?? raw) as Record<string, unknown>;
-      if (msg && (msg.title || msg.message)) {
-        const eventType = msg.event_type ? String(msg.event_type) : undefined;
-        const notifId = msg.id ? String(msg.id) : null;
-        if (notifId) shownToastIds.current.add(notifId);
+      // Unwrap possible wrapper formats: {notification:{...}}, {data:{...}}, or flat
+      const payload = (
+        (raw?.notification as Record<string, unknown>) ??
+        (raw?.data as Record<string, unknown>) ??
+        raw
+      );
 
-        // Play notification sound if enabled
-        if (settings.enableSound && eventType) {
-          playNotificationSound(
-            eventType as any,
-            settings.soundVolume,
-          ).catch((err) => console.warn("Failed to play sound:", err));
-        }
+      const eventType = String(payload?.event_type ?? raw?.event_type ?? "");
+      const title = String(payload?.title ?? raw?.title ?? "");
+      const message = String(payload?.message ?? raw?.message ?? "");
+      const notifId = String(payload?.id ?? raw?.id ?? "");
 
-        setLiveMessage({
-          title: String(msg.title ?? ""),
-          message: String(msg.message ?? ""),
-          event_type: eventType,
-        });
-        if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
-        liveTimerRef.current = setTimeout(() => setLiveMessage(null), 8000);
+      // Skip non-notification messages (ping, connection ack, etc.)
+      if (!eventType && !title) return;
+
+      if (notifId) shownToastIds.current.add(notifId);
+
+      if (settings.enableSound && eventType) {
+        playNotificationSound(
+          eventType as any,
+          settings.soundVolume,
+        ).catch((err) => console.warn("Failed to play sound:", err));
       }
+
+      setLiveMessage({
+        title: title || eventType.replace(/_/g, " "),
+        message,
+        event_type: eventType || undefined,
+      });
+      if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
+      liveTimerRef.current = setTimeout(() => setLiveMessage(null), 8000);
     });
     ws.onopen = () => setWsConnected(true);
     ws.onclose = () => setWsConnected(false);
