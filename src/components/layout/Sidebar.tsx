@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   GitBranch,
@@ -13,13 +13,15 @@ import {
   Users,
   LogOut,
   Workflow,
-} from 'lucide-react';
-import clsx from 'clsx';
-import { useAuthStore } from '@/store/auth';
-import { authApi } from '@/lib/api';
-import toast from 'react-hot-toast';
-import { useRouter } from 'next/navigation';
-import { UserRole } from '@/types';
+  Settings,
+  Sparkles,
+} from "lucide-react";
+import clsx from "clsx";
+import { useAuthStore } from "@/store/auth";
+import { authApi } from "@/lib/api";
+import toast from "react-hot-toast";
+import { useRouter } from "next/navigation";
+import { UserRole } from "@/types";
 
 interface NavItem {
   href: string;
@@ -29,14 +31,30 @@ interface NavItem {
 }
 
 export const navItems: NavItem[] = [
-  { href: '/dashboard',      label: 'Dashboard',     icon: LayoutDashboard, minRole: 'viewer' },
-  { href: '/blueprints',     label: 'Blueprints',    icon: GitBranch,       minRole: 'viewer' },
-  { href: '/runs',           label: 'Runs',          icon: Play,            minRole: 'viewer' },
-  { href: '/scripts',        label: 'Scripts',       icon: Code2,           minRole: 'viewer' },
-  { href: '/schedules',      label: 'Schedules',     icon: Clock,           minRole: 'viewer' },
-  { href: '/notifications',  label: 'Notifications', icon: Bell,            minRole: 'viewer' },
-  { href: '/webhooks',       label: 'Webhooks',      icon: Webhook,         minRole: 'editor' },
-  { href: '/users',          label: 'Users',         icon: Users,           minRole: 'admin' },
+  {
+    href: "/dashboard",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    minRole: "viewer",
+  },
+  {
+    href: "/blueprints",
+    label: "Blueprints",
+    icon: GitBranch,
+    minRole: "viewer",
+  },
+  { href: "/runs", label: "Runs", icon: Play, minRole: "viewer" },
+  { href: "/scripts", label: "Scripts", icon: Code2, minRole: "viewer" },
+  { href: "/schedules", label: "Schedules", icon: Clock, minRole: "viewer" },
+  {
+    href: "/notifications",
+    label: "Notifications",
+    icon: Bell,
+    minRole: "viewer",
+  },
+  { href: "/webhooks", label: "Webhooks", icon: Webhook, minRole: "editor" },
+  { href: "/users", label: "Users", icon: Users, minRole: "admin" },
+  { href: "/settings", label: "Settings", icon: Settings, minRole: "viewer" },
 ];
 
 const roleRank: Record<UserRole, number> = {
@@ -47,13 +65,17 @@ const roleRank: Record<UserRole, number> = {
 };
 
 const roleColors: Record<UserRole, string> = {
-  admin:    'bg-red-500/20 text-red-300',
-  editor:   'bg-indigo-500/20 text-indigo-300',
-  executor: 'bg-blue-500/20 text-blue-300',
-  viewer:   'bg-slate-500/20 text-slate-400',
+  admin: "bg-red-500/20 text-red-300",
+  editor: "bg-indigo-500/20 text-indigo-300",
+  executor: "bg-blue-500/20 text-blue-300",
+  viewer: "bg-slate-500/20 text-slate-400",
 };
 
-export default function Sidebar() {
+interface SidebarProps {
+  onGetStarted?: () => void;
+}
+
+export default function Sidebar({ onGetStarted }: SidebarProps) {
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
   const router = useRouter();
@@ -67,12 +89,12 @@ export default function Sidebar() {
       // ignore
     }
     logout();
-    toast.success('Logged out');
-    router.push('/login');
+    toast.success("Logged out");
+    router.push("/login");
   };
 
   const visibleItems = navItems.filter(
-    (item) => userRank >= roleRank[item.minRole]
+    (item) => userRank >= roleRank[item.minRole],
   );
 
   return (
@@ -82,23 +104,26 @@ export default function Sidebar() {
         <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center flex-shrink-0">
           <Workflow className="w-4 h-4 text-white" />
         </div>
-        <span className="text-white font-bold text-lg tracking-tight">Flowcraft</span>
+        <span className="text-white font-bold text-lg tracking-tight">
+          Flowcraft
+        </span>
       </div>
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         {visibleItems.map((item) => {
           const Icon = item.icon;
-          const active = pathname === item.href || pathname.startsWith(item.href + '/');
+          const active =
+            pathname === item.href || pathname.startsWith(item.href + "/");
           return (
             <Link
               key={item.href}
               href={item.href}
               className={clsx(
-                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                 active
-                  ? 'bg-indigo-600 text-white'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  ? "bg-indigo-600 text-white"
+                  : "text-slate-400 hover:text-white hover:bg-slate-800",
               )}
             >
               <Icon className="w-4 h-4 flex-shrink-0" />
@@ -108,13 +133,26 @@ export default function Sidebar() {
         })}
       </nav>
 
+      {/* Get Started */}
+      <div className="px-3 pb-2">
+        <button
+          onClick={onGetStarted}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-indigo-400 hover:text-indigo-300 hover:bg-indigo-900/20 border border-indigo-800/40 hover:border-indigo-700/60 transition-colors"
+        >
+          <Sparkles className="w-4 h-4 flex-shrink-0" />
+          Get Started
+        </button>
+      </div>
+
       {/* User footer */}
       <div className="px-3 py-4 border-t border-slate-800">
         {user && (
           <div className="px-3 py-3 rounded-lg bg-slate-800">
             <div className="flex items-center justify-between">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-white truncate">{user.name}</p>
+                <p className="text-sm font-medium text-white truncate">
+                  {user.name}
+                </p>
                 <p className="text-xs text-slate-400 truncate">{user.email}</p>
               </div>
               <button
@@ -126,7 +164,12 @@ export default function Sidebar() {
               </button>
             </div>
             <div className="mt-2">
-              <span className={clsx('text-[11px] font-semibold px-1.5 py-0.5 rounded capitalize', roleColors[user.role])}>
+              <span
+                className={clsx(
+                  "text-[11px] font-semibold px-1.5 py-0.5 rounded capitalize",
+                  roleColors[user.role],
+                )}
+              >
                 {user.role}
               </span>
             </div>

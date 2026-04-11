@@ -101,6 +101,7 @@ export default function NotificationBell() {
         message?: string;
         read?: boolean;
         reference_id?: string; // run_id
+        created_at?: string;
       };
 
       const RUN_EVENTS = new Set(["run_started", "run_completed", "run_failed"]);
@@ -130,18 +131,25 @@ export default function NotificationBell() {
         }
         qc.invalidateQueries({ queryKey: ["notifications"] });
 
-        const incoming = (raw.notifications as WsNotif[]).filter((n) => !n.read);
+        // Sort descending by created_at so newest is always first
+        const incoming = (raw.notifications as WsNotif[])
+          .filter((n) => !n.read)
+          .sort((a, b) =>
+            (b.created_at ?? "").localeCompare(a.created_at ?? ""),
+          );
         if (!incoming.length) return;
 
-        const first = incoming.find((n) => !shownToastIds.current.has(n.id));
+        // Mark all as seen, then pick the latest run event not yet toasted
+        incoming.forEach((n) => shownToastIds.current.add(n.id));
+        const first =
+          incoming.find((n) => RUN_EVENTS.has(n.event_type ?? "")) ?? null;
         if (!first) return;
-        shownToastIds.current.add(first.id);
 
         const eventType = first.event_type ?? "";
         const title = first.title || eventType.replace(/_/g, " ");
         const message = first.message ?? "";
         const runId = first.reference_id ?? "";
-        const isRunEvent = RUN_EVENTS.has(eventType);
+        const isRunEvent = true; // already filtered above
 
         setBellFlash(true);
         setTimeout(() => setBellFlash(false), 1200);

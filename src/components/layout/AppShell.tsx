@@ -8,6 +8,7 @@ import { authApi } from "@/lib/api";
 import Sidebar, { navItems } from "./Sidebar";
 import NotificationBell from "@/components/ui/NotificationBell";
 import NotificationToast from "@/components/ui/NotificationToast";
+import GettingStarted, { useGettingStarted } from "@/components/ui/GettingStarted";
 import { unlockAudio } from "@/lib/notificationSounds";
 
 interface AppShellProps {
@@ -20,6 +21,7 @@ export default function AppShell({ children, title }: AppShellProps) {
   const pathname = usePathname();
   const { isAuthenticated, setUser, setToken } = useAuthStore();
   const { hydrate } = useNotificationStore();
+  const { open: guideOpen, setOpen: setGuideOpen } = useGettingStarted();
 
   const navItem = navItems.find(
     (item) => pathname === item.href || pathname.startsWith(item.href + "/"),
@@ -75,7 +77,7 @@ export default function AppShell({ children, title }: AppShellProps) {
 
   return (
     <div className="flex h-screen bg-slate-950 overflow-hidden">
-      <Sidebar />
+      <Sidebar onGetStarted={() => setGuideOpen(true)} />
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar */}
         <header className="flex-shrink-0 h-14 bg-slate-900 border-b border-slate-700 flex items-center justify-between px-6">
@@ -86,6 +88,13 @@ export default function AppShell({ children, title }: AppShellProps) {
             {title ?? "Flowcraft"}
           </h1>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setGuideOpen(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors border border-slate-700 hover:border-slate-600"
+              title="Get Started guide"
+            >
+              <span>?</span> Help
+            </button>
             <NotificationBell />
           </div>
         </header>
@@ -94,6 +103,8 @@ export default function AppShell({ children, title }: AppShellProps) {
       </div>
       {/* Global floating notification toast */}
       <NotificationToast />
+      {/* Get Started guide */}
+      <GettingStarted open={guideOpen} onClose={() => setGuideOpen(false)} />
     </div>
   );
 }
