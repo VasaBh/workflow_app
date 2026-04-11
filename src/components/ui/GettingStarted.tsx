@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   X,
@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 
-const STORAGE_KEY = "wos_getting_started_dismissed";
 
 interface Step {
   id: number;
@@ -96,7 +95,6 @@ export default function GettingStarted({ open, onClose }: Props) {
   };
 
   const handleDismiss = () => {
-    localStorage.setItem(STORAGE_KEY, "true");
     onClose();
   };
 
@@ -290,11 +288,5 @@ function StepTips({ stepId }: { stepId: number }) {
 
 export function useGettingStarted() {
   const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    const dismissed = localStorage.getItem(STORAGE_KEY);
-    if (!dismissed) setOpen(true);
-  }, []);
-
   return { open, setOpen };
 }
